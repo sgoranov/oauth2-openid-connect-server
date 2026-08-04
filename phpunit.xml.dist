@@ -6,15 +6,9 @@
             <directory>./tests/</directory>
         </testsuite>
     </testsuites>
-    <filter>
-        <whitelist addUncoveredFilesFromWhitelist="true">
+    <coverage includeUncoveredFiles="true">
+        <include>
             <directory suffix=".php">src</directory>
-        </whitelist>
-    </filter>
-    <logging>
-        <log type="coverage-text" target="php://stdout" title="steverhoades/oauth2-openid-connect-server" charset="UTF-8" yui="true"
-             highlight="true" lowUpperBound="60" highLowerBound="90"/>
-        <log type="coverage-html" target="build/coverage" title="steverhoades/oauth2-openid-connect-server" charset="UTF-8" yui="true"
-             highlight="true" lowUpperBound="60" highLowerBound="90"/>
-    </logging>
+        </include>
+    </coverage>
 </phpunit>

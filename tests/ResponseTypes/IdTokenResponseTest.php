@@ -33,9 +33,9 @@ class IdTokenResponseTest extends TestCase
         $response->getBody()->rewind();
         $json = json_decode($response->getBody()->getContents());
         self::assertEquals('Bearer', $json->token_type);
-        self::assertObjectHasAttribute('expires_in', $json);
-        self::assertObjectHasAttribute('access_token', $json);
-        self::assertObjectHasAttribute('refresh_token', $json);
+        self::assertObjectHasProperty('expires_in', $json);
+        self::assertObjectHasProperty('access_token', $json);
+        self::assertObjectHasProperty('refresh_token', $json);
     }
 
     /**
@@ -55,10 +55,10 @@ class IdTokenResponseTest extends TestCase
         $response->getBody()->rewind();
         $json = json_decode($response->getBody()->getContents());
         self::assertEquals('Bearer', $json->token_type);
-        self::assertObjectHasAttribute('expires_in', $json);
-        self::assertObjectHasAttribute('access_token', $json);
-        self::assertObjectHasAttribute('refresh_token', $json);
-        self::assertObjectHasAttribute('id_token', $json);
+        self::assertObjectHasProperty('expires_in', $json);
+        self::assertObjectHasProperty('access_token', $json);
+        self::assertObjectHasProperty('refresh_token', $json);
+        self::assertObjectHasProperty('id_token', $json);
     }
 
     // test additional claims
@@ -112,10 +112,10 @@ class IdTokenResponseTest extends TestCase
         $json = json_decode($response->getBody()->getContents(),false);
 
         self::assertEquals('Bearer', $json->token_type);
-        self::assertObjectHasAttribute('expires_in', $json);
-        self::assertObjectHasAttribute('access_token', $json);
-        self::assertObjectHasAttribute('refresh_token', $json);
-        self::assertObjectHasAttribute('id_token', $json);
+        self::assertObjectHasProperty('expires_in', $json);
+        self::assertObjectHasProperty('access_token', $json);
+        self::assertObjectHasProperty('refresh_token', $json);
+        self::assertObjectHasProperty('id_token', $json);
 
         if (class_exists("\Lcobucci\JWT\Token\Parser")) {
             $parser = new \Lcobucci\JWT\Token\Parser(new \Lcobucci\JWT\Encoding\JoseEncoder, \Lcobucci\JWT\Encoding\ChainedFormatter::withUnixTimestampDates());

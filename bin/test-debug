@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
+cd "$PROJECT_ROOT"
+
+echo "Cleaning up previous debug session..."
+docker compose down --remove-orphans
+
+echo "Starting debug environment..."
+echo "Run 'composer test' inside the container to execute the test suite."
+docker compose run --rm php /bin/sh
