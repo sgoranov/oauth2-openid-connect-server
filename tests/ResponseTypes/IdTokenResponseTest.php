@@ -181,10 +181,7 @@ KEY
     {
         $responseType->setPrivateKey($privateKey);
 
-        // league/oauth2-server 5.1.0 does not support this interface
-        if (method_exists($responseType, 'setEncryptionKey')) {
-            $responseType->setEncryptionKey(base64_encode(random_bytes(36)));
-        }
+        $responseType->setEncryptionKey(base64_encode(random_bytes(36)));
 
         $client = new ClientEntity();
         $client->setIdentifier('clientName');
@@ -199,20 +196,10 @@ KEY
         $accessToken = new AccessTokenEntity();
         $accessToken->setIdentifier('abcdef');
 
-        if (method_exists($accessToken, 'setPrivateKey')) {
-            $accessToken->setPrivateKey($privateKey);
-        }
-
-        // Use DateTime for older libraries, DateTimeImmutable for new ones.
-        try {
-            $accessToken->setExpiryDateTime(
-                (new \DateTime())->add(new \DateInterval('PT1H'))
-            );
-        } catch(\TypeError $e) {
-            $accessToken->setExpiryDateTime(
-                (new \DateTimeImmutable())->add(new \DateInterval('PT1H'))
-            );
-        }
+        $accessToken->setPrivateKey($privateKey);
+        $accessToken->setExpiryDateTime(
+            (new \DateTimeImmutable())->add(new \DateInterval('PT1H'))
+        );
         $accessToken->setClient($client);
 
         foreach ($scopes as $scope) {
@@ -223,16 +210,9 @@ KEY
         $refreshToken->setIdentifier('abcdef');
         $refreshToken->setAccessToken($accessToken);
 
-        // Use DateTime for older libraries, DateTimeImmutable for new ones.
-        try {
-            $refreshToken->setExpiryDateTime(
-                (new \DateTime())->add(new \DateInterval('PT1H'))
-            );
-        } catch(\TypeError $e) {
-            $refreshToken->setExpiryDateTime(
-                (new \DateTimeImmutable())->add(new \DateInterval('PT1H'))
-            );
-        }
+        $refreshToken->setExpiryDateTime(
+            (new \DateTimeImmutable())->add(new \DateInterval('PT1H'))
+        );
 
         $responseType->setAccessToken($accessToken);
         $responseType->setRefreshToken($refreshToken);

@@ -19,36 +19,12 @@ use Lcobucci\JWT\Encoding\JoseEncoder;
 
 class IdTokenResponse extends BearerTokenResponse
 {
-    /**
-     * @var IdentityProviderInterface
-     */
-    protected $identityProvider;
-
-    /**
-     * @var ClaimExtractor
-     */
-    protected $claimExtractor;
-
-    /**
-     * @var IssuerResolverInterface
-     */
-    protected $issuerResolver;
-
-    /**
-     * @var string|null
-     */
-    protected $keyIdentifier;
-    
     public function __construct(
-        IdentityProviderInterface $identityProvider,
-        ClaimExtractor $claimExtractor,
-        IssuerResolverInterface $issuerResolver,
-        ?string $keyIdentifier = null
+        protected IdentityProviderInterface $identityProvider,
+        protected ClaimExtractor $claimExtractor,
+        protected IssuerResolverInterface $issuerResolver,
+        protected ?string $keyIdentifier = null
     ) {
-        $this->identityProvider = $identityProvider;
-        $this->claimExtractor   = $claimExtractor;
-        $this->issuerResolver   = $issuerResolver;
-        $this->keyIdentifier    = $keyIdentifier;
     }
 
     protected function getBuilder(AccessTokenEntityInterface $accessToken, UserEntityInterface $userEntity)
@@ -56,18 +32,12 @@ class IdTokenResponse extends BearerTokenResponse
         $claimsFormatter = ChainedFormatter::withUnixTimestampDates();
         $builder = new Builder(new JoseEncoder(), $claimsFormatter);
 
-        // Since version 8.0 league/oauth2-server returns \DateTimeImmutable
-        $expiresAt = $accessToken->getExpiryDateTime();
-        if ($expiresAt instanceof \DateTime) {
-            $expiresAt = \DateTimeImmutable::createFromMutable($expiresAt);
-        }
-
         // Add required id_token claims
         return $builder
             ->permittedFor($accessToken->getClient()->getIdentifier())
             ->issuedBy($this->issuerResolver->resolve($accessToken))
             ->issuedAt(new \DateTimeImmutable())
-            ->expiresAt($expiresAt)
+            ->expiresAt($accessToken->getExpiryDateTime())
             ->relatedTo($userEntity->getIdentifier());
     }
 
@@ -104,14 +74,10 @@ class IdTokenResponse extends BearerTokenResponse
             $builder = $builder->withHeader('kid', $this->keyIdentifier);
         }
 
-        if (
-            method_exists($this->privateKey, 'getKeyContents')
-            && !empty($this->privateKey->getKeyContents())
-        ) {
-            $key = InMemory::plainText($this->privateKey->getKeyContents(), (string)$this->privateKey->getPassPhrase());
-        } else {
-            $key = InMemory::file($this->privateKey->getKeyPath(), (string)$this->privateKey->getPassPhrase());
-        }
+        $key = InMemory::plainText(
+            $this->privateKey->getKeyContents(),
+            (string) $this->privateKey->getPassPhrase()
+        );
 
         $token = $builder->getToken(new Sha256(), $key);
 
@@ -124,19 +90,14 @@ class IdTokenResponse extends BearerTokenResponse
      * @param ScopeEntityInterface[] $scopes
      * @return bool
      */
-    private function isOpenIDRequest($scopes)
+    private function isOpenIDRequest(array $scopes): bool
     {
-        // Verify scope and make sure openid exists.
-        $valid  = false;
-
         foreach ($scopes as $scope) {
             if ($scope->getIdentifier() === 'openid') {
-                $valid = true;
-                break;
+                return true;
             }
         }
 
-        return $valid;
+        return false;
     }
-
 }
