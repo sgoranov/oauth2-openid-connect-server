@@ -24,13 +24,7 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "OpenIDConnectServer\\Test\\": "tests/",
-            "LeagueTests\\": "vendor/league/oauth2-server/tests/"
-        }
-    },
-    "config": {
-        "preferred-install": {
-            "league/oauth2-server": "source"
+            "OpenIDConnectServer\\Test\\": "tests/"
         }
     },
     "scripts": {
