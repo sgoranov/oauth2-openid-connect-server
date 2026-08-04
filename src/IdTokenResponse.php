@@ -6,7 +6,6 @@
 namespace OpenIDConnectServer;
 
 use Lcobucci\JWT\Signer\Key\InMemory;
-use Lcobucci\JWT\Signer\Key\LocalFileReference;
 use OpenIDConnectServer\Repositories\IdentityProviderInterface;
 use OpenIDConnectServer\Entities\ClaimSetInterface;
 use League\OAuth2\Server\Entities\UserEntityInterface;
@@ -104,7 +103,7 @@ class IdTokenResponse extends BearerTokenResponse
         ) {
             $key = InMemory::plainText($this->privateKey->getKeyContents(), (string)$this->privateKey->getPassPhrase());
         } else {
-            $key = LocalFileReference::file($this->privateKey->getKeyPath(), (string)$this->privateKey->getPassPhrase());
+            $key = InMemory::file($this->privateKey->getKeyPath(), (string)$this->privateKey->getPassPhrase());
         }
 
         $token = $builder->getToken(new Sha256(), $key);

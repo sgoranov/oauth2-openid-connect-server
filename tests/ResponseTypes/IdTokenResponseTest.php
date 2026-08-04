@@ -5,6 +5,9 @@ namespace OpenIDConnectServer\Test\ResponseTypes;
 use OpenIDConnectServer\ClaimExtractor;
 use OpenIDConnectServer\IdTokenResponse;
 use OpenIDConnectServer\Test\Stubs\IdentityProvider;
+use Lcobucci\JWT\Encoding\ChainedFormatter;
+use Lcobucci\JWT\Encoding\JoseEncoder;
+use Lcobucci\JWT\Token\Parser;
 use PHPUnit\Framework\TestCase;
 use League\OAuth2\Server\CryptKey;
 use LeagueTests\Stubs\AccessTokenEntity;
@@ -117,12 +120,7 @@ class IdTokenResponseTest extends TestCase
         self::assertObjectHasProperty('refresh_token', $json);
         self::assertObjectHasProperty('id_token', $json);
 
-        if (class_exists("\Lcobucci\JWT\Token\Parser")) {
-            $parser = new \Lcobucci\JWT\Token\Parser(new \Lcobucci\JWT\Encoding\JoseEncoder, \Lcobucci\JWT\Encoding\ChainedFormatter::withUnixTimestampDates());
-        } else {
-            $parser = new \Lcobucci\JWT\Parser();
-        }
-
+        $parser = new Parser(new JoseEncoder(), ChainedFormatter::withUnixTimestampDates());
         $token = $parser->parse($json->id_token);
         self::assertTrue($token->claims()->has("email"));
     }

@@ -4,3 +4,4 @@ phpunit.xml
 /examples/*.key
 .idea
 .phpunit.result.cache
+/.phpunit.cache/
