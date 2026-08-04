@@ -1,6 +1,7 @@
 # OAuth 2.0 OpenID Connect Server
 
-[![CI](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/ci.yml/badge.svg)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/ci.yml)
+[![PHPUnit Tests](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml/badge.svg?branch=main)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml)
+[![Dependency Vulnerability Scan](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml/badge.svg?branch=main)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml)
 
 This library adds OpenID Connect ID tokens and scope-based user claims to [The PHP League's OAuth2 Server](https://github.com/thephpleague/oauth2-server).
 
