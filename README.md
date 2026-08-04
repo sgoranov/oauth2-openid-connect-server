@@ -37,7 +37,12 @@ $privateKeyPath = 'file://' . __DIR__ . '/../private.key';
 $publicKeyPath = 'file://' . __DIR__ . '/../public.key';
 
 // OpenID Connect Response Type
-$responseType = new IdTokenResponse(new IdentityRepository(), new ClaimExtractor());
+$issuerResolver = new StaticIssuerResolver('https://auth.example.com');
+$responseType = new IdTokenResponse(
+    new IdentityRepository(),
+    new ClaimExtractor(),
+    $issuerResolver
+);
 
 // Setup the authorization server
 $server = new \League\OAuth2\Server\AuthorizationServer(
@@ -66,6 +71,8 @@ $server->enableGrantType(
 return $server;
 ```
 After the server has been configured it should be used as described in the [OAuth2 Server documentation](https://oauth2.thephpleague.com/).
+
+The issuer must be the canonical URL advertised by the OpenID Provider and must exactly match the value expected by clients. `StaticIssuerResolver` is suitable for a single-issuer server. Multi-tenant servers can implement `IssuerResolverInterface` and resolve an issuer from trusted access-token context.
 
 ## UserEntity
 In order for this library to work properly you will need to add your IdentityProvider to the IdTokenResponse object.  This will be used internally to lookup a UserEntity by it's identifier.  Additionally your UserEntity must implement the ClaimSetInterface which includes a single method getClaims().  The getClaims() method should return a list of attributes as key/value pairs that can be returned if the proper scope has been defined.

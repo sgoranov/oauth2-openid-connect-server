@@ -4,6 +4,7 @@ namespace OpenIDConnectServer\Test\ResponseTypes;
 
 use OpenIDConnectServer\ClaimExtractor;
 use OpenIDConnectServer\IdTokenResponse;
+use OpenIDConnectServer\StaticIssuerResolver;
 use OpenIDConnectServer\Test\Stubs\IdentityProvider;
 use Lcobucci\JWT\Encoding\ChainedFormatter;
 use Lcobucci\JWT\Encoding\JoseEncoder;
@@ -19,12 +20,14 @@ use Laminas\Diactoros\Response;
 
 class IdTokenResponseTest extends TestCase
 {
+    private const ISSUER = 'https://issuer.example.com';
+
     /**
      * @dataProvider provideCryptKeys
      */
     public function testGeneratesDefaultHttpResponse($privateKey)
     {
-        $responseType = new IdTokenResponse(new IdentityProvider(), new ClaimExtractor());
+        $responseType = $this->createIdTokenResponse();
         $response = $this->processResponseType($responseType, $privateKey);
 
         self::assertInstanceOf(ResponseInterface::class, $response);
@@ -46,7 +49,7 @@ class IdTokenResponseTest extends TestCase
      */
     public function testOpenIDConnectHttpResponse($privateKey)
     {
-        $responseType = new IdTokenResponse(new IdentityProvider(), new ClaimExtractor());
+        $responseType = $this->createIdTokenResponse();
         $response = $this->processResponseType($responseType, $privateKey, ['openid']);
 
         self::assertInstanceOf(ResponseInterface::class, $response);
@@ -73,10 +76,10 @@ class IdTokenResponseTest extends TestCase
     {
         $this->expectException(\RuntimeException::class);
 
-        $_SERVER['HTTP_HOST'] = 'https://localhost';
         $responseType = new IdTokenResponse(
             new IdentityProvider(IdentityProvider::NO_CLAIMSET),
-            new ClaimExtractor()
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
         );
         $this->processResponseType($responseType, $privateKey, ['openid']);
         self::fail('Exception should have been thrown');
@@ -91,7 +94,8 @@ class IdTokenResponseTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $responseType = new IdTokenResponse(
             new IdentityProvider(IdentityProvider::NO_IDENTIFIER),
-            new ClaimExtractor()
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
         );
         $this->processResponseType($responseType, $privateKey, ['openid']);
         self::fail('Exception should have been thrown');
@@ -102,7 +106,7 @@ class IdTokenResponseTest extends TestCase
      */
     public function testClaimsGetExtractedFromUserEntity($privateKey)
     {
-        $responseType = new IdTokenResponse(new IdentityProvider(), new ClaimExtractor());
+        $responseType = $this->createIdTokenResponse();
         $response = $this->processResponseType($responseType, $privateKey, ['openid', 'email']);
 
         self::assertInstanceOf(ResponseInterface::class, $response);
@@ -122,6 +126,7 @@ class IdTokenResponseTest extends TestCase
 
         $parser = new Parser(new JoseEncoder(), ChainedFormatter::withUnixTimestampDates());
         $token = $parser->parse($json->id_token);
+        self::assertSame(self::ISSUER, $token->claims()->get('iss'));
         self::assertTrue($token->claims()->has("email"));
     }
 
@@ -163,10 +168,17 @@ KEY
         ));
     }
 
+    private function createIdTokenResponse(): IdTokenResponse
+    {
+        return new IdTokenResponse(
+            new IdentityProvider(),
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
+        );
+    }
+
     private function processResponseType($responseType, $privateKey,  array $scopeNames = ['basic'])
     {
-        $_SERVER['HTTP_HOST'] = 'https://localhost';
-
         $responseType->setPrivateKey($privateKey);
 
         // league/oauth2-server 5.1.0 does not support this interface

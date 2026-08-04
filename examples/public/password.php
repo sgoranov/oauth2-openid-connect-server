@@ -11,6 +11,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\App;
 use OpenIDConnectServer\IdTokenResponse;
+use OpenIDConnectServer\StaticIssuerResolver;
 use OpenIDConnectServerExamples\Repositories\IdentityRepository;
 use OpenIDConnectServerExamples\Repositories\ScopeRepository;
 use OpenIDConnectServer\ClaimExtractor;
@@ -21,7 +22,11 @@ $app = new App([
     // Add the authorization server to the DI container
     AuthorizationServer::class => function () {
         // OpenID Connect Response Type
-        $responseType = new IdTokenResponse(new IdentityRepository(), new ClaimExtractor());
+        $responseType = new IdTokenResponse(
+            new IdentityRepository(),
+            new ClaimExtractor(),
+            new StaticIssuerResolver('https://localhost')
+        );
 
         // Setup the authorization server
         $server = new AuthorizationServer(

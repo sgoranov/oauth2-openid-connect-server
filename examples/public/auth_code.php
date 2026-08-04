@@ -20,6 +20,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Slim\App;
 use Laminas\Diactoros\Stream;
 use OpenIDConnectServer\IdTokenResponse;
+use OpenIDConnectServer\StaticIssuerResolver;
 use OpenIDConnectServerExamples\Repositories\IdentityRepository;
 use OpenIDConnectServerExamples\Repositories\ScopeRepository;
 use OpenIDConnectServer\ClaimExtractor;
@@ -41,7 +42,11 @@ $app = new App([
         $privateKeyPath = 'file://' . __DIR__ . '/../private.key';
 
         // OpenID Connect Response Type
-        $responseType = new IdTokenResponse(new IdentityRepository(), new ClaimExtractor());
+        $responseType = new IdTokenResponse(
+            new IdentityRepository(),
+            new ClaimExtractor(),
+            new StaticIssuerResolver('https://localhost')
+        );
 
         // Setup the authorization server
         $server = new AuthorizationServer(
