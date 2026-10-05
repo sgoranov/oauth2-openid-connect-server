@@ -1,12 +1,23 @@
 <?php
 
+declare(strict_types=1);
+
 namespace OpenIDConnectServerExamples\Entities;
 
+use League\OAuth2\Server\Entities\Traits\EntityTrait;
+use League\OAuth2\Server\Entities\UserEntityInterface;
 use OpenIDConnectServer\Entities\ClaimSetInterface;
 
-class UserEntity extends \OAuth2ServerExamples\Entities\UserEntity implements ClaimSetInterface
+class UserEntity implements UserEntityInterface, ClaimSetInterface
 {
-    public function getClaims()
+    use EntityTrait;
+
+    public function __construct(string $identifier = '1')
+    {
+        $this->setIdentifier($identifier);
+    }
+
+    public function getClaims(): array
     {
         return [
             // profile

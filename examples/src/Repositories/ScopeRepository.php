@@ -7,18 +7,21 @@
  * @link        https://github.com/thephpleague/oauth2-server
  */
 
+declare(strict_types=1);
+
 namespace OpenIDConnectServerExamples\Repositories;
 
 use League\OAuth2\Server\Entities\ClientEntityInterface;
+use League\OAuth2\Server\Entities\ScopeEntityInterface;
 use League\OAuth2\Server\Repositories\ScopeRepositoryInterface;
-use OAuth2ServerExamples\Entities\ScopeEntity;
+use OpenIDConnectServerExamples\Entities\ScopeEntity;
 
-class ScopeRepository extends \OAuth2ServerExamples\Repositories\ScopeRepository
+class ScopeRepository implements ScopeRepositoryInterface
 {
     /**
      * {@inheritdoc}
      */
-    public function getScopeEntityByIdentifier($scopeIdentifier)
+    public function getScopeEntityByIdentifier(string $scopeIdentifier): ?ScopeEntityInterface
     {
         $scopes = [
             // Without this OpenID Connect cannot work.
@@ -34,12 +37,23 @@ class ScopeRepository extends \OAuth2ServerExamples\Repositories\ScopeRepository
         ];
 
         if (array_key_exists($scopeIdentifier, $scopes) === false) {
-            return;
+            return null;
         }
 
         $scope = new ScopeEntity();
         $scope->setIdentifier($scopeIdentifier);
 
         return $scope;
+    }
+
+    /** @param ScopeEntityInterface[] $scopes */
+    public function finalizeScopes(
+        array $scopes,
+        string $grantType,
+        ClientEntityInterface $clientEntity,
+        ?string $userIdentifier = null,
+        ?string $authCodeId = null
+    ): array {
+        return $scopes;
     }
 }
