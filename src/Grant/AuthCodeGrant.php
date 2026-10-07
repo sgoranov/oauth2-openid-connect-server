@@ -6,6 +6,7 @@ namespace OpenIDConnectServer\Grant;
 
 use DateInterval;
 use DateTimeImmutable;
+use InvalidArgumentException;
 use League\OAuth2\Server\Entities\UserEntityInterface;
 use League\OAuth2\Server\Exception\OAuthServerException;
 use League\OAuth2\Server\Grant\AuthCodeGrant as LeagueAuthCodeGrant;
@@ -159,8 +160,8 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
 
         try {
             $payload = json_decode($this->decrypt($code));
-        } catch (\Throwable) {
-            // Let the League grant produce its normal invalid-code response.
+        } catch (InvalidArgumentException | LogicException) {
+            // Same failures the League grant maps to its invalid-code responses; let it report them.
             return;
         }
 

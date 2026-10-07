@@ -33,6 +33,7 @@ use OpenIDConnectServer\RequestTypes\AuthorizationRequest;
 use OpenIDConnectServer\StaticIssuerResolver;
 use OpenIDConnectServer\Test\Stubs\AccessTokenEntity;
 use OpenIDConnectServer\Test\Stubs\AuthCodeEntity;
+use OpenIDConnectServer\Test\Stubs\AuthCodeGrantWithFaultyDecrypt;
 use OpenIDConnectServer\Test\Stubs\ClientEntity;
 use OpenIDConnectServer\Test\Stubs\IdentityProvider;
 use OpenIDConnectServer\Test\Stubs\ScopeEntity;
@@ -353,6 +354,18 @@ class AuthCodeGrantTest extends TestCase
         );
     }
 
+    public function testUnexpectedErrorWhileReadingNonceIsNotSwallowed(): void
+    {
+        $code = $this->authorizeAndGetCode(['nonce' => 'must-not-be-lost']);
+        $this->grant = $this->createGrant(grantClass: AuthCodeGrantWithFaultyDecrypt::class);
+
+        // Swallowing this would let the parent's own decrypt succeed and silently issue an ID token without a nonce.
+        $this->expectException(\Error::class);
+        $this->expectExceptionMessage('Unexpected failure while decrypting');
+
+        $this->exchangeCode($code);
+    }
+
     public function testLegacyCodeWithoutNonceKeyIssuesIdTokenWithoutNonce(): void
     {
         $idToken = $this->exchangeCodeForIdToken($this->legacyCodeWithoutNonceKey());
@@ -432,8 +445,10 @@ class AuthCodeGrantTest extends TestCase
         $this->grant->completeAuthorizationRequest($authorizationRequest);
     }
 
-    private function createGrant(string $encryptionKey = self::ENCRYPTION_KEY): AuthCodeGrant
-    {
+    private function createGrant(
+        string $encryptionKey = self::ENCRYPTION_KEY,
+        string $grantClass = AuthCodeGrant::class
+    ): AuthCodeGrant {
         $client = new ClientEntity();
         $client->setIdentifier(self::CLIENT_ID);
         $client->setRedirectUri(self::REDIRECT_URI);
@@ -485,7 +500,7 @@ class AuthCodeGrantTest extends TestCase
             }
         );
 
-        $grant = new AuthCodeGrant(
+        $grant = new $grantClass(
             $authCodeRepository,
             $refreshTokenRepository,
             new DateInterval('PT10M')
