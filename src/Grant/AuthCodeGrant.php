@@ -6,10 +6,12 @@ namespace OpenIDConnectServer\Grant;
 
 use DateInterval;
 use DateTimeImmutable;
-use InvalidArgumentException;
+use League\OAuth2\Server\Entities\AuthCodeEntityInterface;
 use League\OAuth2\Server\Entities\UserEntityInterface;
 use League\OAuth2\Server\Exception\OAuthServerException;
 use League\OAuth2\Server\Grant\AuthCodeGrant as LeagueAuthCodeGrant;
+use League\OAuth2\Server\Repositories\AuthCodeRepositoryInterface;
+use League\OAuth2\Server\Repositories\RefreshTokenRepositoryInterface;
 use League\OAuth2\Server\RequestTypes\AuthorizationRequestInterface;
 use League\OAuth2\Server\ResponseTypes\RedirectResponse;
 use League\OAuth2\Server\ResponseTypes\ResponseTypeInterface;
@@ -20,19 +22,36 @@ use Psr\Http\Message\ServerRequestInterface;
 
 class AuthCodeGrant extends LeagueAuthCodeGrant
 {
+    /**
+     * Overrides League's constructor.
+     *
+     * League keeps the auth code TTL in a private property, so it's captured here as well:
+     * completeAuthorizationRequest() needs it to issue codes.
+     */
     public function __construct(
-        \League\OAuth2\Server\Repositories\AuthCodeRepositoryInterface $authCodeRepository,
-        \League\OAuth2\Server\Repositories\RefreshTokenRepositoryInterface $refreshTokenRepository,
+        AuthCodeRepositoryInterface $authCodeRepository,
+        RefreshTokenRepositoryInterface $refreshTokenRepository,
         private DateInterval $oidcAuthCodeTTL
     ) {
         parent::__construct($authCodeRepository, $refreshTokenRepository, $oidcAuthCodeTTL);
     }
 
+    /**
+     * Overrides League's AbstractAuthorizeGrant::createAuthorizationRequest().
+     *
+     * Returns this package's AuthorizationRequest, which can carry the OIDC nonce.
+     */
     protected function createAuthorizationRequest(): AuthorizationRequestInterface
     {
         return new AuthorizationRequest();
     }
 
+    /**
+     * Overrides League's validateAuthorizationRequest().
+     *
+     * League doesn't know about the OIDC nonce parameter. After League's own validation,
+     * this reads the nonce from the query string for OpenID requests and stores it on the request.
+     */
     public function validateAuthorizationRequest(ServerRequestInterface $request): AuthorizationRequestInterface
     {
         $authorizationRequest = parent::validateAuthorizationRequest($request);
@@ -57,17 +76,13 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         return $authorizationRequest;
     }
 
-    private function isOpenIdRequest(AuthorizationRequestInterface $authorizationRequest): bool
-    {
-        foreach ($authorizationRequest->getScopes() as $scope) {
-            if ($scope->getIdentifier() === 'openid') {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
+    /**
+     * Overrides League's completeAuthorizationRequest().
+     *
+     * League builds the encrypted code payload inline and offers no hook to extend it.
+     * This copy (mirroring league/oauth2-server 9.4.1) adds the nonce to the payload,
+     * and must be kept in sync with upstream changes.
+     */
     public function completeAuthorizationRequest(AuthorizationRequestInterface $authorizationRequest): ResponseTypeInterface
     {
         if ($authorizationRequest->getUser() instanceof UserEntityInterface === false) {
@@ -89,25 +104,44 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
             return $this->createAuthorizationCodeResponse($authorizationRequest, $authCode, $finalRedirectUri);
         }
 
-        throw \League\OAuth2\Server\Exception\OAuthServerException::accessDenied(
+        throw OAuthServerException::accessDenied(
             'The user denied the request',
             $this->makeRedirectUri($finalRedirectUri, ['state' => $authorizationRequest->getState()])
         );
     }
 
+    /**
+     * Overrides League's respondToAccessTokenRequest().
+     *
+     * Passes the nonce from the validated authorization code to IdTokenResponse,
+     * so it appears as the nonce claim in the issued ID token.
+     */
     public function respondToAccessTokenRequest(
         ServerRequestInterface $request,
         ResponseTypeInterface $responseType,
         DateInterval $accessTokenTTL
     ): ResponseTypeInterface {
-        $this->setResponseNonceFromAuthorizationCode($request, $responseType);
+        if ($responseType instanceof IdTokenResponse) {
+            // Reset first so a nonce from an earlier exchange can never carry over.
+            $responseType->setNonce(null);
+        }
 
-        return parent::respondToAccessTokenRequest($request, $responseType, $accessTokenTTL);
+        $responseType = parent::respondToAccessTokenRequest($request, $responseType, $accessTokenTTL);
+
+        // The parent has validated the code, client, redirect URI and PKCE by now, so the code
+        // decrypts cleanly and the nonce comes from a fully verified payload. League exposes no
+        // hook for the payload it already decrypted, so the code is decrypted a second time here.
+        if ($responseType instanceof IdTokenResponse) {
+            $code = (string) $this->getRequestParameter('code', $request);
+            $responseType->setNonce($this->extractNonce($this->decrypt($code)));
+        }
+
+        return $responseType;
     }
 
     private function createAuthorizationCodeResponse(
         AuthorizationRequestInterface $authorizationRequest,
-        \League\OAuth2\Server\Entities\AuthCodeEntityInterface $authCode,
+        AuthCodeEntityInterface $authCode,
         string $redirectUri
     ): ResponseTypeInterface {
         $payload = [
@@ -141,32 +175,24 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         return $response;
     }
 
-    private function setResponseNonceFromAuthorizationCode(
-        ServerRequestInterface $request,
-        ResponseTypeInterface $responseType
-    ): void {
-        if (!$responseType instanceof IdTokenResponse) {
-            return;
+    private function extractNonce(string $authCodePayloadJson): ?string
+    {
+        $payload = json_decode($authCodePayloadJson);
+        if (!is_object($payload) || !property_exists($payload, 'nonce')) {
+            return null;
         }
 
-        // Reset first so a nonce from an earlier exchange can never carry over.
-        $responseType->setNonce(null);
+        return is_string($payload->nonce) ? $payload->nonce : null;
+    }
 
-        $parsedBody = (array) $request->getParsedBody();
-        $code = $parsedBody['code'] ?? null;
-        if (!is_string($code)) {
-            return;
+    private function isOpenIdRequest(AuthorizationRequestInterface $authorizationRequest): bool
+    {
+        foreach ($authorizationRequest->getScopes() as $scope) {
+            if ($scope->getIdentifier() === 'openid') {
+                return true;
+            }
         }
 
-        try {
-            $payload = json_decode($this->decrypt($code));
-        } catch (InvalidArgumentException | LogicException) {
-            // Same failures the League grant maps to its invalid-code responses; let it report them.
-            return;
-        }
-
-        if (is_object($payload) && property_exists($payload, 'nonce')) {
-            $responseType->setNonce(is_string($payload->nonce) ? $payload->nonce : null);
-        }
+        return false;
     }
 }

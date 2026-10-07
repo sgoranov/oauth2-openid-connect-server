@@ -354,16 +354,37 @@ class AuthCodeGrantTest extends TestCase
         );
     }
 
-    public function testUnexpectedErrorWhileReadingNonceIsNotSwallowed(): void
+    public function testUnexpectedDecryptionErrorPropagates(): void
     {
         $code = $this->authorizeAndGetCode(['nonce' => 'must-not-be-lost']);
         $this->grant = $this->createGrant(grantClass: AuthCodeGrantWithFaultyDecrypt::class);
 
-        // Swallowing this would let the parent's own decrypt succeed and silently issue an ID token without a nonce.
         $this->expectException(\Error::class);
         $this->expectExceptionMessage('Unexpected failure while decrypting');
 
         $this->exchangeCode($code);
+    }
+
+    public function testNonceFromRejectedExchangeDoesNotCarryIntoNextExchange(): void
+    {
+        $responseType = $this->createIdTokenResponse();
+        $codeVerifier = rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '=');
+        $codeChallenge = rtrim(strtr(base64_encode(hash('sha256', $codeVerifier, true)), '+/', '-_'), '=');
+        $rejectedCode = $this->authorizeAndGetCode([
+            'nonce' => 'rejected-nonce',
+            'code_challenge' => $codeChallenge,
+            'code_challenge_method' => 'S256',
+        ]);
+
+        try {
+            $this->exchangeCode($rejectedCode, ['code_verifier' => str_repeat('x', 64)], $responseType);
+            self::fail('Expected PKCE verification to fail');
+        } catch (OAuthServerException) {
+        }
+
+        $response = $this->exchangeCode($this->legacyCodeWithoutNonceKey(), [], $responseType);
+
+        self::assertFalse($this->parseIdToken($response->id_token)->claims()->has('nonce'));
     }
 
     public function testLegacyCodeWithoutNonceKeyIssuesIdTokenWithoutNonce(): void
