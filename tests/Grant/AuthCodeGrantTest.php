@@ -98,11 +98,10 @@ class AuthCodeGrantTest extends TestCase
         self::assertFalse($idToken->claims()->has('nonce'));
     }
 
-    #[DataProvider('provideBlankNonces')]
-    public function testBlankNonceIsTreatedAsAbsent(string $nonce): void
+    public function testEmptyNonceIsTreatedAsAbsent(): void
     {
         $authorizationRequest = $this->grant->validateAuthorizationRequest(
-            $this->authorizationServerRequest(['nonce' => $nonce])
+            $this->authorizationServerRequest(['nonce' => ''])
         );
         self::assertInstanceOf(AuthorizationRequest::class, $authorizationRequest);
         self::assertNull($authorizationRequest->getNonce());
@@ -112,19 +111,27 @@ class AuthCodeGrantTest extends TestCase
         self::assertFalse($idToken->claims()->has('nonce'));
     }
 
-    public static function provideBlankNonces(): array
+    #[DataProvider('provideWhitespaceNonces')]
+    public function testWhitespaceInNonceIsPreservedExactly(string $nonce): void
     {
-        return [
-            'empty string' => [''],
-            'whitespace only' => ["  \t "],
-        ];
+        $authorizationRequest = $this->grant->validateAuthorizationRequest(
+            $this->authorizationServerRequest(['nonce' => $nonce])
+        );
+        self::assertInstanceOf(AuthorizationRequest::class, $authorizationRequest);
+        self::assertSame($nonce, $authorizationRequest->getNonce());
+
+        $idToken = $this->exchangeCodeForIdToken($this->approveAndGetCode($authorizationRequest));
+
+        self::assertSame($nonce, $idToken->claims()->get('nonce'));
     }
 
-    public function testSurroundingWhitespaceIsTrimmedFromNonce(): void
+    public static function provideWhitespaceNonces(): array
     {
-        $idToken = $this->exchangeCodeForIdToken($this->authorizeAndGetCode(['nonce' => '  padded-nonce  ']));
-
-        self::assertSame('padded-nonce', $idToken->claims()->get('nonce'));
+        return [
+            'leading and trailing spaces' => ['  padded-nonce  '],
+            'trailing newline' => ["nonce\n"],
+            'whitespace only' => ["  \t "],
+        ];
     }
 
     public function testArrayNonceIsRejectedAsInvalidRequest(): void
@@ -348,21 +355,30 @@ class AuthCodeGrantTest extends TestCase
 
     public function testLegacyCodeWithoutNonceKeyIssuesIdTokenWithoutNonce(): void
     {
-        // Codes issued before nonce support (e.g. by the upstream League grant) have no nonce key.
-        $code = $this->crypt()->encrypt((string) json_encode([
-            'client_id' => self::CLIENT_ID,
-            'redirect_uri' => null,
-            'auth_code_id' => 'legacy-code',
-            'scopes' => ['openid'],
-            'user_id' => '123',
-            'expire_time' => (new DateTimeImmutable('+10 minutes'))->getTimestamp(),
-            'code_challenge' => null,
-            'code_challenge_method' => null,
-        ]));
-
-        $idToken = $this->exchangeCodeForIdToken($code);
+        $idToken = $this->exchangeCodeForIdToken($this->legacyCodeWithoutNonceKey());
 
         self::assertFalse($idToken->claims()->has('nonce'));
+    }
+
+    public function testReusedIdTokenResponseDoesNotLeakNonceIntoLegacyCodeExchange(): void
+    {
+        $responseType = $this->createIdTokenResponse();
+
+        $first = $this->exchangeCode($this->authorizeAndGetCode(['nonce' => 'first-nonce']), [], $responseType);
+        self::assertSame('first-nonce', $this->parseIdToken($first->id_token)->claims()->get('nonce'));
+
+        $second = $this->exchangeCode($this->legacyCodeWithoutNonceKey(), [], $responseType);
+        self::assertFalse($this->parseIdToken($second->id_token)->claims()->has('nonce'));
+    }
+
+    public function testNonceSetDirectlyOnResponseIsClearedByCodeWithoutNonce(): void
+    {
+        $responseType = $this->createIdTokenResponse();
+        $responseType->setNonce('preexisting-nonce');
+
+        $response = $this->exchangeCode($this->legacyCodeWithoutNonceKey(), [], $responseType);
+
+        self::assertFalse($this->parseIdToken($response->id_token)->claims()->has('nonce'));
     }
 
     public function testReusedIdTokenResponseDoesNotLeakNonceBetweenExchanges(): void
@@ -545,6 +561,23 @@ class AuthCodeGrantTest extends TestCase
         $httpResponse->getBody()->rewind();
 
         return json_decode($httpResponse->getBody()->getContents());
+    }
+
+    /**
+     * Codes issued before nonce support (e.g. by the upstream League grant) have no nonce key.
+     */
+    private function legacyCodeWithoutNonceKey(): string
+    {
+        return $this->crypt()->encrypt((string) json_encode([
+            'client_id' => self::CLIENT_ID,
+            'redirect_uri' => null,
+            'auth_code_id' => 'legacy-code',
+            'scopes' => ['openid'],
+            'user_id' => '123',
+            'expire_time' => (new DateTimeImmutable('+10 minutes'))->getTimestamp(),
+            'code_challenge' => null,
+            'code_challenge_method' => null,
+        ]));
     }
 
     private function exchangeCodeForIdToken(string $code): UnencryptedToken

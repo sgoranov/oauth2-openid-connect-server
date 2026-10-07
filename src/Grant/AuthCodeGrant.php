@@ -7,6 +7,7 @@ namespace OpenIDConnectServer\Grant;
 use DateInterval;
 use DateTimeImmutable;
 use League\OAuth2\Server\Entities\UserEntityInterface;
+use League\OAuth2\Server\Exception\OAuthServerException;
 use League\OAuth2\Server\Grant\AuthCodeGrant as LeagueAuthCodeGrant;
 use League\OAuth2\Server\RequestTypes\AuthorizationRequestInterface;
 use League\OAuth2\Server\ResponseTypes\RedirectResponse;
@@ -40,8 +41,14 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
             return $authorizationRequest;
         }
 
-        $nonce = $this->getQueryStringParameter('nonce', $request);
-        if ($nonce !== null) {
+        // Read the raw value: the ID token must echo the nonce exactly (OIDC Core §3.1.3.7),
+        // so League's trimming getQueryStringParameter() is not used here.
+        $nonce = $request->getQueryParams()['nonce'] ?? null;
+        if ($nonce !== null && !is_string($nonce)) {
+            throw OAuthServerException::invalidRequest('nonce');
+        }
+
+        if ($nonce !== null && $nonce !== '') {
             /** @var AuthorizationRequest $authorizationRequest */
             $authorizationRequest->setNonce($nonce);
         }
@@ -140,6 +147,9 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         if (!$responseType instanceof IdTokenResponse) {
             return;
         }
+
+        // Reset first so a nonce from an earlier exchange can never carry over.
+        $responseType->setNonce(null);
 
         $parsedBody = (array) $request->getParsedBody();
         $code = $parsedBody['code'] ?? null;
