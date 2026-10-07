@@ -107,6 +107,7 @@ class IdTokenResponseTest extends TestCase
     public function testClaimsGetExtractedFromUserEntity($privateKey)
     {
         $responseType = $this->createIdTokenResponse();
+        $responseType->setNonce('nonce-value');
         $response = $this->processResponseType($responseType, $privateKey, ['openid', 'email']);
 
         self::assertInstanceOf(ResponseInterface::class, $response);
@@ -128,6 +129,7 @@ class IdTokenResponseTest extends TestCase
         $token = $parser->parse($json->id_token);
         self::assertSame(self::ISSUER, $token->claims()->get('iss'));
         self::assertTrue($token->claims()->has("email"));
+        self::assertSame('nonce-value', $token->claims()->get('nonce'));
     }
 
     public static function provideCryptKeys()

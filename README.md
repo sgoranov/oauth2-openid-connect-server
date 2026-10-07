@@ -45,6 +45,7 @@ The following classes will need to be configured and passed to the Authorization
 use League\OAuth2\Server\AuthorizationServer;
 use League\OAuth2\Server\CryptKey;
 use OpenIDConnectServer\ClaimExtractor;
+use OpenIDConnectServer\Grant\AuthCodeGrant;
 use OpenIDConnectServer\IdTokenResponse;
 use OpenIDConnectServer\StaticIssuerResolver;
 
@@ -76,7 +77,7 @@ $server = new AuthorizationServer(
     $responseType
 );
 
-$grant = new \League\OAuth2\Server\Grant\AuthCodeGrant(
+$grant = new AuthCodeGrant(
     $authCodeRepository,
     $refreshTokenRepository,
     new \DateInterval('PT10M') // authorization codes will expire after 10 minutes
@@ -92,6 +93,8 @@ $server->enableGrantType(
 
 return $server;
 ```
+
+Use the package-provided `OpenIDConnectServer\Grant\AuthCodeGrant` for authorization-code flows. It preserves an optional `nonce` authorization parameter in the encrypted authorization code and adds the same value to the resulting ID token.
 
 After the server has been configured it should be used as described in the [OAuth2 Server documentation](https://oauth2.thephpleague.com/).
 

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use League\OAuth2\Server\AuthorizationServer;
 use League\OAuth2\Server\Exception\OAuthServerException;
-use League\OAuth2\Server\Grant\AuthCodeGrant;
+use OpenIDConnectServer\Grant\AuthCodeGrant;
 use OpenIDConnectServer\ClaimExtractor;
 use OpenIDConnectServer\IdTokenResponse;
 use OpenIDConnectServer\StaticIssuerResolver;

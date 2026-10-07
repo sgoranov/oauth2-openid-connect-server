@@ -61,3 +61,5 @@ curl -X POST "http://localhost:4444/client_credentials.php/access_token" \
 ```
 
 The authorization-code and implicit examples expose `/authorize` routes in their corresponding scripts. The implicit flow is included for legacy interoperability only; new clients should use authorization code with PKCE.
+
+For authorization-code requests, include a nonce (for example, `nonce=unique-request-value`). The value is carried in the authorization code and emitted unchanged as the `nonce` claim in the ID token.

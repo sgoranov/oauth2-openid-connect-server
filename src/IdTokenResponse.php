@@ -19,12 +19,19 @@ use Lcobucci\JWT\Encoding\JoseEncoder;
 
 class IdTokenResponse extends BearerTokenResponse
 {
+    private ?string $nonce = null;
+
     public function __construct(
         protected IdentityProviderInterface $identityProvider,
         protected ClaimExtractor $claimExtractor,
         protected IssuerResolverInterface $issuerResolver,
         protected ?string $keyIdentifier = null
     ) {
+    }
+
+    public function setNonce(?string $nonce): void
+    {
+        $this->nonce = $nonce;
     }
 
     protected function getBuilder(AccessTokenEntityInterface $accessToken, UserEntityInterface $userEntity)
@@ -68,6 +75,10 @@ class IdTokenResponse extends BearerTokenResponse
 
         foreach ($claims as $claimName => $claimValue) {
             $builder = $builder->withClaim($claimName, $claimValue);
+        }
+
+        if ($this->nonce !== null) {
+            $builder = $builder->withClaim('nonce', $this->nonce);
         }
 
         if ($this->keyIdentifier !== null) {
