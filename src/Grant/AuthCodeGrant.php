@@ -94,7 +94,8 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
      *
      * League builds the encrypted code payload inline and offers no hook to extend it.
      * This copy (mirroring league/oauth2-server 9.4.1) adds the nonce to the payload,
-     * and must be kept in sync with upstream changes.
+     * and must be kept in sync with upstream changes. AuthCodeGrantTest fails when League's
+     * method changes or the payloads diverge.
      */
     public function completeAuthorizationRequest(AuthorizationRequestInterface $authorizationRequest): ResponseTypeInterface
     {

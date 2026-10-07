@@ -11,6 +11,7 @@ use League\OAuth2\Server\CryptTrait;
 use League\OAuth2\Server\Entities\AccessTokenEntityInterface;
 use League\OAuth2\Server\Entities\ClientEntityInterface;
 use League\OAuth2\Server\Exception\OAuthServerException;
+use League\OAuth2\Server\Grant\AuthCodeGrant as LeagueAuthCodeGrant;
 use League\OAuth2\Server\Repositories\AccessTokenRepositoryInterface;
 use League\OAuth2\Server\Repositories\AuthCodeRepositoryInterface;
 use League\OAuth2\Server\Repositories\ClientRepositoryInterface;
@@ -40,6 +41,7 @@ use OpenIDConnectServer\Test\Stubs\ScopeEntity;
 use OpenIDConnectServer\Test\Stubs\UserEntity;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use ReflectionMethod;
 
 class AuthCodeGrantTest extends TestCase
 {
@@ -505,10 +507,87 @@ class AuthCodeGrantTest extends TestCase
         $this->grant->completeAuthorizationRequest($authorizationRequest);
     }
 
+    /**
+     * AuthCodeGrant::completeAuthorizationRequest() is a copy of League's, extended with the nonce.
+     * The tests below fail when League changes the original, so the copy can be brought back in sync.
+     */
+    private const LEAGUE_COMPLETE_AUTHORIZATION_REQUEST_SHA256 =
+        'dfd2db50b79ec38e90e24b16e25248af4b6521cbce6180574a771fadd1448c05'; // league/oauth2-server 9.4.1
+
+    public function testLeagueCompleteAuthorizationRequestIsUnchangedSinceCopy(): void
+    {
+        $method = new ReflectionMethod(LeagueAuthCodeGrant::class, 'completeAuthorizationRequest');
+        $lines = array_slice(
+            (array) file((string) $method->getFileName()),
+            (int) $method->getStartLine() - 1,
+            (int) $method->getEndLine() - (int) $method->getStartLine() + 1
+        );
+        $source = trim((string) preg_replace('/\s+/', ' ', implode('', $lines)));
+
+        self::assertSame(
+            self::LEAGUE_COMPLETE_AUTHORIZATION_REQUEST_SHA256,
+            hash('sha256', $source),
+            'League\'s AuthCodeGrant::completeAuthorizationRequest() has changed. Compare it with '
+            . 'OpenIDConnectServer\Grant\AuthCodeGrant::completeAuthorizationRequest() and '
+            . 'createAuthorizationCodeResponse(), port the changes, then update this hash and the '
+            . 'League version in the docblock.'
+        );
+    }
+
+    public function testAuthorizationCodePayloadMatchesLeagueApartFromNonce(): void
+    {
+        $queryParams = [
+            'state' => 'the-state',
+            'redirect_uri' => self::REDIRECT_URI,
+            'code_challenge' => str_repeat('c', 43),
+            'code_challenge_method' => 'S256',
+            'scope' => 'openid email',
+        ];
+
+        $leagueRedirect = $this->approvedRedirectParams(
+            $this->createGrant(grantClass: LeagueAuthCodeGrant::class),
+            $queryParams
+        );
+        $ourRedirect = $this->approvedRedirectParams($this->grant, $queryParams + ['nonce' => 'the-nonce']);
+
+        self::assertSame(array_keys($leagueRedirect), array_keys($ourRedirect));
+        self::assertSame($leagueRedirect['state'], $ourRedirect['state']);
+
+        $leaguePayload = json_decode($this->crypt()->decrypt($leagueRedirect['code']), true);
+        $ourPayload = json_decode($this->crypt()->decrypt($ourRedirect['code']), true);
+
+        self::assertSame('the-nonce', $ourPayload['nonce']);
+        unset($ourPayload['nonce']);
+        self::assertSame(array_keys($leaguePayload), array_keys($ourPayload));
+
+        // auth_code_id is random per code, and expire_time depends on when each code was issued.
+        self::assertEqualsWithDelta($leaguePayload['expire_time'], $ourPayload['expire_time'], 5);
+        unset(
+            $leaguePayload['auth_code_id'],
+            $leaguePayload['expire_time'],
+            $ourPayload['auth_code_id'],
+            $ourPayload['expire_time']
+        );
+        self::assertSame($leaguePayload, $ourPayload);
+    }
+
+    public function testDeniedAuthorizationMatchesLeague(): void
+    {
+        $queryParams = ['state' => 'denied-state', 'redirect_uri' => self::REDIRECT_URI];
+
+        $leagueDenial = $this->deniedAuthorizationResponse(
+            $this->createGrant(grantClass: LeagueAuthCodeGrant::class),
+            $queryParams
+        );
+        $ourDenial = $this->deniedAuthorizationResponse($this->grant, $queryParams + ['nonce' => 'denied-nonce']);
+
+        self::assertSame($leagueDenial, $ourDenial);
+    }
+
     private function createGrant(
         string $encryptionKey = self::ENCRYPTION_KEY,
         string $grantClass = AuthCodeGrant::class
-    ): AuthCodeGrant {
+    ): LeagueAuthCodeGrant {
         $client = new ClientEntity();
         $client->setIdentifier(self::CLIENT_ID);
         $client->setRedirectUri(self::REDIRECT_URI);
@@ -574,6 +653,42 @@ class AuthCodeGrantTest extends TestCase
         $grant->disableRequireCodeChallengeForPublicClients();
 
         return $grant;
+    }
+
+    private function approvedRedirectParams(LeagueAuthCodeGrant $grant, array $queryParams): array
+    {
+        $authorizationRequest = $grant->validateAuthorizationRequest($this->authorizationServerRequest($queryParams));
+        $authorizationRequest->setUser(new UserEntity());
+        $authorizationRequest->setAuthorizationApproved(true);
+
+        $location = $grant->completeAuthorizationRequest($authorizationRequest)
+            ->generateHttpResponse(new Response())
+            ->getHeaderLine('Location');
+        parse_str((string) parse_url($location, PHP_URL_QUERY), $redirectParams);
+
+        return $redirectParams;
+    }
+
+    private function deniedAuthorizationResponse(LeagueAuthCodeGrant $grant, array $queryParams): array
+    {
+        $authorizationRequest = $grant->validateAuthorizationRequest($this->authorizationServerRequest($queryParams));
+        $authorizationRequest->setUser(new UserEntity());
+        $authorizationRequest->setAuthorizationApproved(false);
+
+        try {
+            $grant->completeAuthorizationRequest($authorizationRequest);
+        } catch (OAuthServerException $exception) {
+            $response = $exception->generateHttpResponse(new Response());
+
+            return [
+                'error' => $exception->getErrorType(),
+                'message' => $exception->getMessage(),
+                'status' => $response->getStatusCode(),
+                'location' => $response->getHeaderLine('Location'),
+            ];
+        }
+
+        self::fail('Expected access_denied exception');
     }
 
     private function createIdTokenResponse(): IdTokenResponse
