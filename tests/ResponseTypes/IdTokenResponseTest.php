@@ -15,6 +15,8 @@ use Lcobucci\JWT\Encoding\JoseEncoder;
 use Lcobucci\JWT\Token\Parser;
 use PHPUnit\Framework\TestCase;
 use League\OAuth2\Server\CryptKey;
+use League\OAuth2\Server\Entities\AccessTokenEntityInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
 use Laminas\Diactoros\Response;
 
@@ -132,6 +134,100 @@ class IdTokenResponseTest extends TestCase
         self::assertSame('nonce-value', $token->claims()->get('nonce'));
     }
 
+    public function testScopeIsReturnedWithoutOpenidScope(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            ['basic', 'email']
+        ));
+
+        self::assertSame('basic email', $json->scope);
+        self::assertObjectNotHasProperty('id_token', $json);
+    }
+
+    public function testScopeIsReturnedAlongsideIdTokenWithOpenidScope(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            ['openid', 'email']
+        ));
+
+        self::assertSame('openid email', $json->scope);
+        self::assertObjectHasProperty('id_token', $json);
+    }
+
+    public function testScopeIsEmptyStringWhenNoScopesWereGranted(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            []
+        ));
+
+        self::assertSame('', $json->scope);
+        self::assertObjectNotHasProperty('id_token', $json);
+        self::assertObjectHasProperty('access_token', $json);
+    }
+
+    public function testScopeKeepsGrantedOrder(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            ['phone', 'openid', 'address']
+        ));
+
+        self::assertSame('phone openid address', $json->scope);
+    }
+
+    public function testStandardTokenResponseParametersAreKept(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            ['openid']
+        ));
+
+        self::assertSame('Bearer', $json->token_type);
+        self::assertIsInt($json->expires_in);
+        self::assertObjectHasProperty('access_token', $json);
+        self::assertObjectHasProperty('refresh_token', $json);
+        self::assertSame('openid', $json->scope);
+        self::assertObjectHasProperty('id_token', $json);
+    }
+
+    #[DataProvider('provideScopeSets')]
+    public function testExtraParamsFromSubclassesAreKeptAlongsideScope(array $scopeNames, bool $expectIdToken): void
+    {
+        $responseType = new class (
+            new IdentityProvider(),
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
+        ) extends IdTokenResponse {
+            protected function getExtraParams(AccessTokenEntityInterface $accessToken): array
+            {
+                return parent::getExtraParams($accessToken) + ['custom_param' => 'custom-value'];
+            }
+        };
+
+        $json = $this->decodeResponse($this->processResponseType($responseType, $this->privateKey(), $scopeNames));
+
+        self::assertSame('custom-value', $json->custom_param);
+        self::assertSame(implode(' ', $scopeNames), $json->scope);
+        self::assertSame($expectIdToken, property_exists($json, 'id_token'));
+    }
+
+    public static function provideScopeSets(): array
+    {
+        return [
+            'without openid' => [['email'], false],
+            'with openid' => [['openid', 'email'], true],
+            'no scopes' => [[], false],
+        ];
+    }
+
     public static function provideCryptKeys()
     {
         return array(
@@ -168,6 +264,18 @@ fHDgr/HSgH8LCXDq4DSd5XC0WxCPTDYrTN8iiHop2k35Ex0UXYeE+g0=
 KEY
             ),
         ));
+    }
+
+    private function privateKey(): CryptKey
+    {
+        return new CryptKey('file://' . __DIR__ . '/../Stubs/private.key');
+    }
+
+    private function decodeResponse(ResponseInterface $response): object
+    {
+        $response->getBody()->rewind();
+
+        return json_decode($response->getBody()->getContents());
     }
 
     private function createIdTokenResponse(): IdTokenResponse

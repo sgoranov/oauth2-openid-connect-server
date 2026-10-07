@@ -15,6 +15,7 @@ This fork continues that work for modern applications by:
 - targeting OAuth2 Server 9 and `lcobucci/jwt` 5.6;
 - **resolving the ID-token issuer explicitly instead of trusting the incoming `Host` header;**
 - **propagating authorization-request nonces into signed ID tokens for authorization-code flows;**
+- **returning the granted `scope` in every token response, as RFC 6749 requires when it differs from the requested scope;**
 - removing obsolete compatibility paths and unused APIs; and
 - providing a self-contained PHPUnit and Docker test workflow.
 
@@ -37,7 +38,7 @@ The following classes will need to be configured and passed to the Authorization
 1. ClaimSet.  ClaimSet is a way to associate claims to a given scope.
 1. ClaimExtractor. The ClaimExtractor takes an array of ClaimSets and in addition provides default claims for the OpenID Connect specified scopes of: profile, email, phone and address.
 1. IssuerResolver. This returns the canonical OpenID Provider issuer for an access token.
-1. IdTokenResponse. This class must be passed to the AuthorizationServer during construction and is responsible for adding the `id_token` to the response.
+1. IdTokenResponse. This class must be passed to the AuthorizationServer during construction and is responsible for adding the `id_token` to the response. It also adds `scope` to every token response, for all grants, as described in [Granted scope](#granted-scope).
 1. ScopeRepository. The getScopeEntityByIdentifier($identifier) method must return a ScopeEntity for the `openid` scope in order to enable support. See examples.
 
 ### Example Configuration
@@ -102,6 +103,24 @@ For nonce support, include a `nonce` parameter in the authorization request, for
 Nonce support covers the authorization-code flow only. The OpenID Connect implicit flow (`response_type=id_token`) is not supported; League's `ImplicitGrant` issues access tokens only, without an ID token.
 
 After the server has been configured it should be used as described in the [OAuth2 Server documentation](https://oauth2.thephpleague.com/).
+
+### Granted scope
+
+Every token response from `IdTokenResponse` includes a `scope` parameter: the space-separated scopes on the issued access token, after the server's `finalizeScopes()` has run. It is included for every grant, whether or not `openid` was requested:
+
+```json
+{
+    "token_type": "Bearer",
+    "expires_in": 3600,
+    "access_token": "...",
+    "scope": "openid email",
+    "id_token": "..."
+}
+```
+
+RFC 6749 §5.1 requires `scope` whenever the server grants different scopes from those requested. League doesn't pass the requested scopes to the response type, so `scope` is always included. Clients can use it to see what was actually granted. For example, if `openid` was removed, that explains why the response has no `id_token`. When no scopes were granted, `scope` is an empty string.
+
+Subclasses that override `getExtraParams()` should merge their parameters with `parent::getExtraParams($accessToken)` so `scope` and `id_token` are kept.
 
 ### Issuer resolution
 

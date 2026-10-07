@@ -49,13 +49,21 @@ class IdTokenResponse extends BearerTokenResponse
     }
 
     /**
+     * Adds the granted scope to every token response, and an id_token to OpenID Connect responses.
+     *
+     * RFC 6749 §5.1 requires scope whenever the granted scopes differ from those requested.
+     * League doesn't pass the requested scopes to the response type, so scope is always included.
+     *
      * @param AccessTokenEntityInterface $accessToken
      * @return array
      */
     protected function getExtraParams(AccessTokenEntityInterface $accessToken): array
     {
+        $params = parent::getExtraParams($accessToken);
+        $params['scope'] = $this->formatScopes($accessToken->getScopes());
+
         if (false === $this->isOpenIDRequest($accessToken->getScopes())) {
-            return [];
+            return $params;
         }
 
         /** @var UserEntityInterface $userEntity */
@@ -92,9 +100,22 @@ class IdTokenResponse extends BearerTokenResponse
 
         $token = $builder->getToken(new Sha256(), $key);
 
-        return [
-            'id_token' => $token->toString()
-        ];
+        $params['id_token'] = $token->toString();
+
+        return $params;
+    }
+
+    /**
+     * Formats scopes as the space-separated list defined by RFC 6749 §3.3.
+     *
+     * @param ScopeEntityInterface[] $scopes
+     */
+    private function formatScopes(array $scopes): string
+    {
+        return implode(' ', array_map(
+            static fn (ScopeEntityInterface $scope): string => $scope->getIdentifier(),
+            $scopes
+        ));
     }
 
     /**

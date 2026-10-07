@@ -507,6 +507,40 @@ class AuthCodeGrantTest extends TestCase
         $this->grant->completeAuthorizationRequest($authorizationRequest);
     }
 
+    public function testTokenResponseReportsGrantedScope(): void
+    {
+        $response = $this->exchangeCode($this->authorizeAndGetCode(['scope' => 'openid email']));
+
+        self::assertSame('openid email', $response->scope);
+    }
+
+    public function testTokenResponseReportsScopesNarrowedByServer(): void
+    {
+        // The server drops email when issuing the token, e.g. because the client may not request it.
+        $this->grant = $this->createGrant(finalizeScopes: static fn (array $scopes): array => array_values(array_filter(
+            $scopes,
+            static fn (ScopeEntity $scope): bool => $scope->getIdentifier() !== 'email'
+        )));
+
+        $response = $this->exchangeCode($this->authorizeAndGetCode(['scope' => 'openid email']));
+
+        self::assertSame('openid', $response->scope);
+        self::assertObjectHasProperty('id_token', $response);
+    }
+
+    public function testTokenResponseShowsWhyIdTokenIsMissingWhenOpenidIsFilteredOut(): void
+    {
+        $this->grant = $this->createGrant(finalizeScopes: static fn (array $scopes): array => array_values(array_filter(
+            $scopes,
+            static fn (ScopeEntity $scope): bool => $scope->getIdentifier() !== 'openid'
+        )));
+
+        $response = $this->exchangeCode($this->authorizeAndGetCode(['scope' => 'openid email']));
+
+        self::assertSame('email', $response->scope);
+        self::assertObjectNotHasProperty('id_token', $response);
+    }
+
     /**
      * AuthCodeGrant::completeAuthorizationRequest() is a copy of League's, extended with the nonce.
      * The tests below fail when League changes the original, so the copy can be brought back in sync.
@@ -586,7 +620,8 @@ class AuthCodeGrantTest extends TestCase
 
     private function createGrant(
         string $encryptionKey = self::ENCRYPTION_KEY,
-        string $grantClass = AuthCodeGrant::class
+        string $grantClass = AuthCodeGrant::class,
+        ?\Closure $finalizeScopes = null
     ): LeagueAuthCodeGrant {
         $client = new ClientEntity();
         $client->setIdentifier(self::CLIENT_ID);
@@ -609,7 +644,7 @@ class AuthCodeGrantTest extends TestCase
             }
         );
         $scopeRepository->method('finalizeScopes')->willReturnCallback(
-            static fn (array $scopes): array => $scopes
+            $finalizeScopes ?? static fn (array $scopes): array => $scopes
         );
 
         $authCodeRepository = $this->createMock(AuthCodeRepositoryInterface::class);
