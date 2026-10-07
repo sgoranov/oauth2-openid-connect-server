@@ -34,14 +34,30 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
     public function validateAuthorizationRequest(ServerRequestInterface $request): AuthorizationRequestInterface
     {
         $authorizationRequest = parent::validateAuthorizationRequest($request);
-        $nonce = $this->getQueryStringParameter('nonce', $request);
 
+        // nonce is an OpenID Connect parameter; plain OAuth 2.0 requests must ignore it (RFC 6749 §3.1).
+        if (!$this->isOpenIdRequest($authorizationRequest)) {
+            return $authorizationRequest;
+        }
+
+        $nonce = $this->getQueryStringParameter('nonce', $request);
         if ($nonce !== null) {
             /** @var AuthorizationRequest $authorizationRequest */
             $authorizationRequest->setNonce($nonce);
         }
 
         return $authorizationRequest;
+    }
+
+    private function isOpenIdRequest(AuthorizationRequestInterface $authorizationRequest): bool
+    {
+        foreach ($authorizationRequest->getScopes() as $scope) {
+            if ($scope->getIdentifier() === 'openid') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function completeAuthorizationRequest(AuthorizationRequestInterface $authorizationRequest): ResponseTypeInterface

@@ -7,13 +7,14 @@ This library adds OpenID Connect ID tokens and scope-based user claims to [The P
 
 ## Why this fork exists
 
-This is a fork maintained by [Goranov](https://github.com/sgoranov), based on [Steve Rhoades' original project](https://github.com/steverhoades/oauth2-openid-connect-server). The original project established the OpenID Connect integration, but its dependency and API compatibility layers targeted older versions of PHP, OAuth2 Server and `lcobucci/jwt`.
+This is a fork maintained by [Simeon Goranov](https://github.com/sgoranov), based on [Steve Rhoades' original project](https://github.com/steverhoades/oauth2-openid-connect-server). The original project established the OpenID Connect integration, but its dependency and API compatibility layers targeted older versions of PHP, OAuth2 Server and `lcobucci/jwt`.
 
 This fork continues that work for modern applications by:
 
 - requiring PHP 8.2 or later;
 - targeting OAuth2 Server 9 and `lcobucci/jwt` 5.6;
-- resolving the ID-token issuer explicitly instead of trusting the incoming `Host` header;
+- **resolving the ID-token issuer explicitly instead of trusting the incoming `Host` header;**
+- **propagating authorization-request nonces into signed ID tokens for authorization-code flows;**
 - removing obsolete compatibility paths and unused APIs; and
 - providing a self-contained PHPUnit and Docker test workflow.
 
@@ -95,6 +96,8 @@ return $server;
 ```
 
 Use the package-provided `OpenIDConnectServer\Grant\AuthCodeGrant` for authorization-code flows. It preserves an optional `nonce` authorization parameter in the encrypted authorization code and adds the same value to the resulting ID token.
+
+For nonce support, include a `nonce` parameter in the authorization request, for example `GET /authorize?response_type=code&client_id=client-id&scope=openid&nonce=random-request-value`. The client should generate a unique value for each request and verify that the ID token's `nonce` claim matches it.
 
 After the server has been configured it should be used as described in the [OAuth2 Server documentation](https://oauth2.thephpleague.com/).
 
@@ -201,11 +204,10 @@ Now, when you pass the company scope with your request it will attempt to locate
 
 ## Install
 
-To use this fork directly from GitHub, add it as a VCS repository and require the development branch:
+Install the latest compatible 1.x release with Composer:
 
 ```bash
-composer config repositories.oauth2-openid-connect-server vcs https://github.com/sgoranov/oauth2-openid-connect-server
-composer require sgoranov/oauth2-openid-connect-server:dev-develop
+composer require sgoranov/oauth2-openid-connect-server:^1.0
 ```
 
 ## Testing
