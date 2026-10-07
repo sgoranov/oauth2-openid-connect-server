@@ -1,113 +1,79 @@
 <?php
-/**
- * @author      Alex Bilbie <hello@alexbilbie.com>
- * @copyright   Copyright (c) Alex Bilbie
- * @license     http://mit-license.org/
- *
- * @link        https://github.com/thephpleague/oauth2-server
- */
+
+declare(strict_types=1);
 
 use League\OAuth2\Server\AuthorizationServer;
 use League\OAuth2\Server\Exception\OAuthServerException;
-use League\OAuth2\Server\Grant\AuthCodeGrant;
-use OAuth2ServerExamples\Entities\UserEntity;
-use OAuth2ServerExamples\Repositories\AccessTokenRepository;
-use OAuth2ServerExamples\Repositories\AuthCodeRepository;
-use OAuth2ServerExamples\Repositories\ClientRepository;
-use OAuth2ServerExamples\Repositories\RefreshTokenRepository;
+use OpenIDConnectServer\Grant\AuthCodeGrant;
+use OpenIDConnectServer\ClaimExtractor;
+use OpenIDConnectServer\IdTokenResponse;
+use OpenIDConnectServer\StaticIssuerResolver;
+use OpenIDConnectServerExamples\Entities\UserEntity;
+use OpenIDConnectServerExamples\Repositories\AccessTokenRepository;
+use OpenIDConnectServerExamples\Repositories\AuthCodeRepository;
+use OpenIDConnectServerExamples\Repositories\ClientRepository;
+use OpenIDConnectServerExamples\Repositories\IdentityRepository;
+use OpenIDConnectServerExamples\Repositories\RefreshTokenRepository;
+use OpenIDConnectServerExamples\Repositories\ScopeRepository;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Slim\App;
-use Laminas\Diactoros\Stream;
-use OpenIDConnectServer\IdTokenResponse;
-use OpenIDConnectServerExamples\Repositories\IdentityRepository;
-use OpenIDConnectServerExamples\Repositories\ScopeRepository;
-use OpenIDConnectServer\ClaimExtractor;
+use Slim\Factory\AppFactory;
 
-include __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../vendor/autoload.php';
 
-$app = new App([
-    'settings'    => [
-        'displayErrorDetails' => true,
-    ],
-    AuthorizationServer::class => function () {
-        // Init our repositories
-        $clientRepository = new ClientRepository();
-        $scopeRepository = new ScopeRepository();
-        $accessTokenRepository = new AccessTokenRepository();
-        $authCodeRepository = new AuthCodeRepository();
-        $refreshTokenRepository = new RefreshTokenRepository();
+$encryptionKey = getenv('OAUTH_ENCRYPTION_KEY')
+    ?: throw new RuntimeException('Set the OAUTH_ENCRYPTION_KEY environment variable.');
+$issuer = getenv('OIDC_ISSUER')
+    ?: throw new RuntimeException('Set the OIDC_ISSUER environment variable.');
 
-        $privateKeyPath = 'file://' . __DIR__ . '/../private.key';
+$authCodeGrant = new AuthCodeGrant(
+    new AuthCodeRepository(),
+    new RefreshTokenRepository(),
+    new DateInterval('PT10M')
+);
+$authCodeGrant->setRefreshTokenTTL(new DateInterval('P1M'));
 
-        // OpenID Connect Response Type
-        $responseType = new IdTokenResponse(new IdentityRepository(), new ClaimExtractor());
+$server = new AuthorizationServer(
+    new ClientRepository(),
+    new AccessTokenRepository(),
+    new ScopeRepository(),
+    'file://' . __DIR__ . '/../private.key',
+    $encryptionKey,
+    new IdTokenResponse(
+        new IdentityRepository(),
+        new ClaimExtractor(),
+        new StaticIssuerResolver($issuer)
+    )
+);
+$server->enableGrantType($authCodeGrant, new DateInterval('PT1H'));
 
-        // Setup the authorization server
-        $server = new AuthorizationServer(
-            $clientRepository,
-            $accessTokenRepository,
-            $scopeRepository,
-            $privateKeyPath,
-            'lxZFUEsBCJ2Yb14IF2ygAHI5N4+ZAUXXaSeeJm6+twsUmIen',
-            $responseType
-        );
+$app = AppFactory::create();
+$app->setBasePath('/auth_code.php');
+$app->addErrorMiddleware(true, true, true);
 
-        // Enable the authentication code grant on the server with a token TTL of 1 hour
-        $server->enableGrantType(
-            new AuthCodeGrant(
-                $authCodeRepository,
-                $refreshTokenRepository,
-                new \DateInterval('PT10M')
-            ),
-            new \DateInterval('PT1H')
-        );
-
-        return $server;
-    },
-]);
-
-$app->get('/authorize', function (ServerRequestInterface $request, ResponseInterface $response) use ($app) {
-    /* @var \League\OAuth2\Server\AuthorizationServer $server */
-    $server = $app->getContainer()->get(AuthorizationServer::class);
-
+$app->get('/authorize', function (
+    ServerRequestInterface $request,
+    ResponseInterface $response
+) use ($server): ResponseInterface {
     try {
-        // Validate the HTTP request and return an AuthorizationRequest object.
-        // The auth request object can be serialized into a user's session
         $authRequest = $server->validateAuthorizationRequest($request);
-
-        // Once the user has logged in set the user on the AuthorizationRequest
         $authRequest->setUser(new UserEntity());
-
-        // Once the user has approved or denied the client update the status
-        // (true = approved, false = denied)
         $authRequest->setAuthorizationApproved(true);
 
-        // Return the HTTP redirect response
         return $server->completeAuthorizationRequest($authRequest, $response);
     } catch (OAuthServerException $exception) {
         return $exception->generateHttpResponse($response);
-    } catch (\Exception $exception) {
-        $body = new Stream('php://temp', 'r+');
-        $body->write($exception->getMessage());
-
-        return $response->withStatus(500)->withBody($body);
     }
 });
 
-$app->post('/access_token', function (ServerRequestInterface $request, ResponseInterface $response) use ($app) {
-    /* @var \League\OAuth2\Server\AuthorizationServer $server */
-    $server = $app->getContainer()->get(AuthorizationServer::class);
-
+$app->post('/access_token', function (
+    ServerRequestInterface $request,
+    ResponseInterface $response
+) use ($server): ResponseInterface {
     try {
         return $server->respondToAccessTokenRequest($request, $response);
     } catch (OAuthServerException $exception) {
         return $exception->generateHttpResponse($response);
-    } catch (\Exception $exception) {
-        $body = new Stream('php://temp', 'r+');
-        $body->write($exception->getMessage());
-
-        return $response->withStatus(500)->withBody($body);
     }
 });
 

@@ -4,24 +4,32 @@ namespace OpenIDConnectServer\Test\ResponseTypes;
 
 use OpenIDConnectServer\ClaimExtractor;
 use OpenIDConnectServer\IdTokenResponse;
+use OpenIDConnectServer\StaticIssuerResolver;
+use OpenIDConnectServer\Test\Stubs\AccessTokenEntity;
+use OpenIDConnectServer\Test\Stubs\ClientEntity;
 use OpenIDConnectServer\Test\Stubs\IdentityProvider;
+use OpenIDConnectServer\Test\Stubs\RefreshTokenEntity;
+use OpenIDConnectServer\Test\Stubs\ScopeEntity;
+use Lcobucci\JWT\Encoding\ChainedFormatter;
+use Lcobucci\JWT\Encoding\JoseEncoder;
+use Lcobucci\JWT\Token\Parser;
 use PHPUnit\Framework\TestCase;
 use League\OAuth2\Server\CryptKey;
-use LeagueTests\Stubs\AccessTokenEntity;
-use LeagueTests\Stubs\ClientEntity;
-use LeagueTests\Stubs\RefreshTokenEntity;
-use LeagueTests\Stubs\ScopeEntity;
+use League\OAuth2\Server\Entities\AccessTokenEntityInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
 use Laminas\Diactoros\Response;
 
 class IdTokenResponseTest extends TestCase
 {
+    private const ISSUER = 'https://issuer.example.com';
+
     /**
      * @dataProvider provideCryptKeys
      */
     public function testGeneratesDefaultHttpResponse($privateKey)
     {
-        $responseType = new IdTokenResponse(new IdentityProvider(), new ClaimExtractor());
+        $responseType = $this->createIdTokenResponse();
         $response = $this->processResponseType($responseType, $privateKey);
 
         self::assertInstanceOf(ResponseInterface::class, $response);
@@ -33,9 +41,9 @@ class IdTokenResponseTest extends TestCase
         $response->getBody()->rewind();
         $json = json_decode($response->getBody()->getContents());
         self::assertEquals('Bearer', $json->token_type);
-        self::assertObjectHasAttribute('expires_in', $json);
-        self::assertObjectHasAttribute('access_token', $json);
-        self::assertObjectHasAttribute('refresh_token', $json);
+        self::assertObjectHasProperty('expires_in', $json);
+        self::assertObjectHasProperty('access_token', $json);
+        self::assertObjectHasProperty('refresh_token', $json);
     }
 
     /**
@@ -43,7 +51,7 @@ class IdTokenResponseTest extends TestCase
      */
     public function testOpenIDConnectHttpResponse($privateKey)
     {
-        $responseType = new IdTokenResponse(new IdentityProvider(), new ClaimExtractor());
+        $responseType = $this->createIdTokenResponse();
         $response = $this->processResponseType($responseType, $privateKey, ['openid']);
 
         self::assertInstanceOf(ResponseInterface::class, $response);
@@ -55,10 +63,10 @@ class IdTokenResponseTest extends TestCase
         $response->getBody()->rewind();
         $json = json_decode($response->getBody()->getContents());
         self::assertEquals('Bearer', $json->token_type);
-        self::assertObjectHasAttribute('expires_in', $json);
-        self::assertObjectHasAttribute('access_token', $json);
-        self::assertObjectHasAttribute('refresh_token', $json);
-        self::assertObjectHasAttribute('id_token', $json);
+        self::assertObjectHasProperty('expires_in', $json);
+        self::assertObjectHasProperty('access_token', $json);
+        self::assertObjectHasProperty('refresh_token', $json);
+        self::assertObjectHasProperty('id_token', $json);
     }
 
     // test additional claims
@@ -70,10 +78,10 @@ class IdTokenResponseTest extends TestCase
     {
         $this->expectException(\RuntimeException::class);
 
-        $_SERVER['HTTP_HOST'] = 'https://localhost';
         $responseType = new IdTokenResponse(
             new IdentityProvider(IdentityProvider::NO_CLAIMSET),
-            new ClaimExtractor()
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
         );
         $this->processResponseType($responseType, $privateKey, ['openid']);
         self::fail('Exception should have been thrown');
@@ -88,7 +96,8 @@ class IdTokenResponseTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $responseType = new IdTokenResponse(
             new IdentityProvider(IdentityProvider::NO_IDENTIFIER),
-            new ClaimExtractor()
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
         );
         $this->processResponseType($responseType, $privateKey, ['openid']);
         self::fail('Exception should have been thrown');
@@ -99,7 +108,8 @@ class IdTokenResponseTest extends TestCase
      */
     public function testClaimsGetExtractedFromUserEntity($privateKey)
     {
-        $responseType = new IdTokenResponse(new IdentityProvider(), new ClaimExtractor());
+        $responseType = $this->createIdTokenResponse();
+        $responseType->setNonce('nonce-value');
         $response = $this->processResponseType($responseType, $privateKey, ['openid', 'email']);
 
         self::assertInstanceOf(ResponseInterface::class, $response);
@@ -112,19 +122,110 @@ class IdTokenResponseTest extends TestCase
         $json = json_decode($response->getBody()->getContents(),false);
 
         self::assertEquals('Bearer', $json->token_type);
-        self::assertObjectHasAttribute('expires_in', $json);
-        self::assertObjectHasAttribute('access_token', $json);
-        self::assertObjectHasAttribute('refresh_token', $json);
-        self::assertObjectHasAttribute('id_token', $json);
+        self::assertObjectHasProperty('expires_in', $json);
+        self::assertObjectHasProperty('access_token', $json);
+        self::assertObjectHasProperty('refresh_token', $json);
+        self::assertObjectHasProperty('id_token', $json);
 
-        if (class_exists("\Lcobucci\JWT\Token\Parser")) {
-            $parser = new \Lcobucci\JWT\Token\Parser(new \Lcobucci\JWT\Encoding\JoseEncoder, \Lcobucci\JWT\Encoding\ChainedFormatter::withUnixTimestampDates());
-        } else {
-            $parser = new \Lcobucci\JWT\Parser();
-        }
-
+        $parser = new Parser(new JoseEncoder(), ChainedFormatter::withUnixTimestampDates());
         $token = $parser->parse($json->id_token);
+        self::assertSame(self::ISSUER, $token->claims()->get('iss'));
         self::assertTrue($token->claims()->has("email"));
+        self::assertSame('nonce-value', $token->claims()->get('nonce'));
+    }
+
+    public function testScopeIsReturnedWithoutOpenidScope(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            ['basic', 'email']
+        ));
+
+        self::assertSame('basic email', $json->scope);
+        self::assertObjectNotHasProperty('id_token', $json);
+    }
+
+    public function testScopeIsReturnedAlongsideIdTokenWithOpenidScope(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            ['openid', 'email']
+        ));
+
+        self::assertSame('openid email', $json->scope);
+        self::assertObjectHasProperty('id_token', $json);
+    }
+
+    public function testScopeIsEmptyStringWhenNoScopesWereGranted(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            []
+        ));
+
+        self::assertSame('', $json->scope);
+        self::assertObjectNotHasProperty('id_token', $json);
+        self::assertObjectHasProperty('access_token', $json);
+    }
+
+    public function testScopeKeepsGrantedOrder(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            ['phone', 'openid', 'address']
+        ));
+
+        self::assertSame('phone openid address', $json->scope);
+    }
+
+    public function testStandardTokenResponseParametersAreKept(): void
+    {
+        $json = $this->decodeResponse($this->processResponseType(
+            $this->createIdTokenResponse(),
+            $this->privateKey(),
+            ['openid']
+        ));
+
+        self::assertSame('Bearer', $json->token_type);
+        self::assertIsInt($json->expires_in);
+        self::assertObjectHasProperty('access_token', $json);
+        self::assertObjectHasProperty('refresh_token', $json);
+        self::assertSame('openid', $json->scope);
+        self::assertObjectHasProperty('id_token', $json);
+    }
+
+    #[DataProvider('provideScopeSets')]
+    public function testExtraParamsFromSubclassesAreKeptAlongsideScope(array $scopeNames, bool $expectIdToken): void
+    {
+        $responseType = new class (
+            new IdentityProvider(),
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
+        ) extends IdTokenResponse {
+            protected function getExtraParams(AccessTokenEntityInterface $accessToken): array
+            {
+                return parent::getExtraParams($accessToken) + ['custom_param' => 'custom-value'];
+            }
+        };
+
+        $json = $this->decodeResponse($this->processResponseType($responseType, $this->privateKey(), $scopeNames));
+
+        self::assertSame('custom-value', $json->custom_param);
+        self::assertSame(implode(' ', $scopeNames), $json->scope);
+        self::assertSame($expectIdToken, property_exists($json, 'id_token'));
+    }
+
+    public static function provideScopeSets(): array
+    {
+        return [
+            'without openid' => [['email'], false],
+            'with openid' => [['openid', 'email'], true],
+            'no scopes' => [[], false],
+        ];
     }
 
     public static function provideCryptKeys()
@@ -165,16 +266,32 @@ KEY
         ));
     }
 
+    private function privateKey(): CryptKey
+    {
+        return new CryptKey('file://' . __DIR__ . '/../Stubs/private.key');
+    }
+
+    private function decodeResponse(ResponseInterface $response): object
+    {
+        $response->getBody()->rewind();
+
+        return json_decode($response->getBody()->getContents());
+    }
+
+    private function createIdTokenResponse(): IdTokenResponse
+    {
+        return new IdTokenResponse(
+            new IdentityProvider(),
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
+        );
+    }
+
     private function processResponseType($responseType, $privateKey,  array $scopeNames = ['basic'])
     {
-        $_SERVER['HTTP_HOST'] = 'https://localhost';
-
         $responseType->setPrivateKey($privateKey);
 
-        // league/oauth2-server 5.1.0 does not support this interface
-        if (method_exists($responseType, 'setEncryptionKey')) {
-            $responseType->setEncryptionKey(base64_encode(random_bytes(36)));
-        }
+        $responseType->setEncryptionKey(base64_encode(random_bytes(36)));
 
         $client = new ClientEntity();
         $client->setIdentifier('clientName');
@@ -189,20 +306,10 @@ KEY
         $accessToken = new AccessTokenEntity();
         $accessToken->setIdentifier('abcdef');
 
-        if (method_exists($accessToken, 'setPrivateKey')) {
-            $accessToken->setPrivateKey($privateKey);
-        }
-
-        // Use DateTime for older libraries, DateTimeImmutable for new ones.
-        try {
-            $accessToken->setExpiryDateTime(
-                (new \DateTime())->add(new \DateInterval('PT1H'))
-            );
-        } catch(\TypeError $e) {
-            $accessToken->setExpiryDateTime(
-                (new \DateTimeImmutable())->add(new \DateInterval('PT1H'))
-            );
-        }
+        $accessToken->setPrivateKey($privateKey);
+        $accessToken->setExpiryDateTime(
+            (new \DateTimeImmutable())->add(new \DateInterval('PT1H'))
+        );
         $accessToken->setClient($client);
 
         foreach ($scopes as $scope) {
@@ -213,16 +320,9 @@ KEY
         $refreshToken->setIdentifier('abcdef');
         $refreshToken->setAccessToken($accessToken);
 
-        // Use DateTime for older libraries, DateTimeImmutable for new ones.
-        try {
-            $refreshToken->setExpiryDateTime(
-                (new \DateTime())->add(new \DateInterval('PT1H'))
-            );
-        } catch(\TypeError $e) {
-            $refreshToken->setExpiryDateTime(
-                (new \DateTimeImmutable())->add(new \DateInterval('PT1H'))
-            );
-        }
+        $refreshToken->setExpiryDateTime(
+            (new \DateTimeImmutable())->add(new \DateInterval('PT1H'))
+        );
 
         $responseType->setAccessToken($accessToken);
         $responseType->setRefreshToken($refreshToken);

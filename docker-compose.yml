@@ -1,0 +1,8 @@
+services:
+  php:
+    image: composer:2.8
+    working_dir: /app
+    entrypoint: []
+    volumes:
+      - .:/app
+

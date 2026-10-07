@@ -1,5 +1,7 @@
 /vendor/
 phpunit.xml
 /build
-composer.lock
 /examples/*.key
+.idea
+.phpunit.result.cache
+/.phpunit.cache/

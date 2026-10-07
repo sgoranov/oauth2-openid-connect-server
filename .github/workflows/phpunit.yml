@@ -1,0 +1,40 @@
+name: PHPUnit Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1' # Weekly check every Monday at 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  symfony-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run local test runner script
+        run: bash bin/test-run
+
+  # composer.lock pins exact versions, so the job above never sees new League releases.
+  # This job ignores the lock file and tests against the newest versions composer.json allows,
+  # so the weekly run catches upstream changes, e.g. to the League code AuthCodeGrant copies.
+  latest-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update dependencies to the newest allowed versions
+        run: |
+          docker compose run --rm \
+              --env COMPOSER_HOME=/tmp/composer \
+              php composer update --no-interaction --prefer-dist --no-progress
+
+      - name: Show resolved League version
+        run: docker compose run --rm php composer show league/oauth2-server
+
+      - name: Run tests
+        run: docker compose run --rm php composer test
