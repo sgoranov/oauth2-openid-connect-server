@@ -18,7 +18,7 @@ This fork continues that work for modern applications by:
 - removing obsolete compatibility paths and unused APIs; and
 - providing a self-contained PHPUnit and Docker test workflow.
 
-These updates include breaking changes from the original package, particularly the `IdTokenResponse` constructor and supported dependency versions.
+These updates include breaking changes from the original package, particularly the `IdTokenResponse` constructor and supported dependency versions. See [Migrating from steverhoades/oauth2-openid-connect-server](#migrating-from-steverhoadesoauth2-openid-connect-server).
 
 ## Requirements
 
@@ -211,6 +211,50 @@ Install the latest compatible 1.x release with Composer:
 ```bash
 composer require sgoranov/oauth2-openid-connect-server:^1.0
 ```
+
+## Migrating from steverhoades/oauth2-openid-connect-server
+
+### Replace the package
+
+This fork keeps the original `OpenIDConnectServer\` namespace, so the two packages cannot be installed side by side. Composer enforces this through a `conflict` rule: remove the original package before requiring this one.
+
+```bash
+composer remove steverhoades/oauth2-openid-connect-server
+composer require sgoranov/oauth2-openid-connect-server:^1.0
+```
+
+If another dependency requires the original package, Composer will refuse the installation instead of loading two copies of the same classes.
+
+### `IdTokenResponse` constructor (breaking)
+
+The ID-token issuer is no longer taken from the incoming `Host` header. `IdTokenResponse` now requires an `IssuerResolverInterface` as its third argument, and the optional key identifier (`kid`) moves from third to fourth position.
+
+Before:
+
+```php
+$responseType = new IdTokenResponse(
+    new IdentityRepository(),
+    new ClaimExtractor(),
+    'my-key-id' // optional kid
+);
+```
+
+After:
+
+```php
+$responseType = new IdTokenResponse(
+    new IdentityRepository(),
+    new ClaimExtractor(),
+    new StaticIssuerResolver('https://auth.example.com'),
+    'my-key-id' // optional kid
+);
+```
+
+Code that passed a key identifier positionally now fails with a `TypeError`, because a string is not an `IssuerResolverInterface`. Code that passed no key identifier fails with an `ArgumentCountError`. See [Issuer resolution](#issuer-resolution) for choosing a resolver.
+
+### Nonce support
+
+To include the authorization-request `nonce` in ID tokens, replace League's `AuthCodeGrant` with `OpenIDConnectServer\Grant\AuthCodeGrant`. It takes the same constructor arguments. Without this change, the server keeps working but ID tokens carry no `nonce` claim.
 
 ## Testing
 
