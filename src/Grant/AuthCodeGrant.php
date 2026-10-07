@@ -23,6 +23,12 @@ use Psr\Http\Message\ServerRequestInterface;
 class AuthCodeGrant extends LeagueAuthCodeGrant
 {
     /**
+     * Maximum nonce length in bytes. OIDC sets no limit; this keeps the encrypted
+     * authorization code, and so the redirect URL, within common URL length limits.
+     */
+    public const MAX_NONCE_LENGTH = 255;
+
+    /**
      * Overrides League's constructor.
      *
      * League keeps the auth code TTL in a private property, so it's captured here as well:
@@ -66,6 +72,13 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         $nonce = $request->getQueryParams()['nonce'] ?? null;
         if ($nonce !== null && !is_string($nonce)) {
             throw OAuthServerException::invalidRequest('nonce');
+        }
+
+        if ($nonce !== null && strlen($nonce) > self::MAX_NONCE_LENGTH) {
+            throw OAuthServerException::invalidRequest(
+                'nonce',
+                sprintf('The nonce must not exceed %d bytes', self::MAX_NONCE_LENGTH)
+            );
         }
 
         if ($nonce !== null && $nonce !== '') {

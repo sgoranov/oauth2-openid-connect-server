@@ -145,6 +145,44 @@ class AuthCodeGrantTest extends TestCase
         );
     }
 
+    public function testNonceLongerThanMaximumIsRejectedAsInvalidRequest(): void
+    {
+        try {
+            $this->grant->validateAuthorizationRequest(
+                $this->authorizationServerRequest(['nonce' => str_repeat('n', AuthCodeGrant::MAX_NONCE_LENGTH + 1)])
+            );
+            self::fail('Expected invalid_request exception');
+        } catch (OAuthServerException $exception) {
+            self::assertSame('invalid_request', $exception->getErrorType());
+            self::assertSame(
+                sprintf('The nonce must not exceed %d bytes', AuthCodeGrant::MAX_NONCE_LENGTH),
+                $exception->getHint()
+            );
+        }
+    }
+
+    public function testNonceLengthLimitIsMeasuredInBytes(): void
+    {
+        // 128 two-byte Cyrillic characters = 256 bytes, one over the limit despite being only 128 characters.
+        $this->expectException(OAuthServerException::class);
+        $this->expectExceptionCode(3); // invalid_request
+
+        $this->grant->validateAuthorizationRequest(
+            $this->authorizationServerRequest(['nonce' => str_repeat('ж', 128)])
+        );
+    }
+
+    public function testOverlongNonceIsIgnoredWithoutOpenidScope(): void
+    {
+        $authorizationRequest = $this->grant->validateAuthorizationRequest($this->authorizationServerRequest([
+            'nonce' => str_repeat('n', AuthCodeGrant::MAX_NONCE_LENGTH + 1),
+            'scope' => 'email',
+        ]));
+
+        self::assertInstanceOf(AuthorizationRequest::class, $authorizationRequest);
+        self::assertNull($authorizationRequest->getNonce());
+    }
+
     #[DataProvider('provideOpaqueNonces')]
     public function testNonceValueIsPreservedVerbatim(string $nonce): void
     {
@@ -158,9 +196,10 @@ class AuthCodeGrantTest extends TestCase
         return [
             'url reserved characters' => ['a+b/c=d&e?f#g%20h'],
             'json special characters' => ['"quoted" \\ back\\slash'],
-            'unicode' => ['nonce-ünïcødé-🔐'],
+            'unicode' => ['еднократна-стойност-за-вход'],
             'base64url random' => [rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=')],
-            'long value' => [str_repeat('n', 2048)],
+            'maximum length' => [str_repeat('n', AuthCodeGrant::MAX_NONCE_LENGTH)],
+            'maximum length multibyte' => [str_repeat('ж', intdiv(AuthCodeGrant::MAX_NONCE_LENGTH, 2))],
         ];
     }
 
