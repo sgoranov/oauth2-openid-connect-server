@@ -62,4 +62,6 @@ curl -X POST "http://localhost:4444/client_credentials.php/access_token" \
 
 The authorization-code and implicit examples expose `/authorize` routes in their corresponding scripts. The implicit flow is included for legacy interoperability only; new clients should use authorization code with PKCE.
 
+The implicit example is the plain OAuth 2.0 implicit flow (`response_type=token`): it returns only an access token in the redirect fragment, never an ID token. The OpenID Connect implicit flow (`response_type=id_token` or `id_token token`) is not supported, so a `nonce` sent to the implicit endpoint is ignored.
+
 For authorization-code requests, include a nonce (for example, `nonce=unique-request-value`). The value is carried in the authorization code and emitted unchanged as the `nonce` claim in the ID token.
