@@ -24,7 +24,7 @@ These updates include breaking changes from the original package, particularly t
 ## Requirements
 
 - PHP 8.2 or later
-- [`league/oauth2-server`](https://github.com/thephpleague/oauth2-server) 9.x
+- [`league/oauth2-server`](https://github.com/thephpleague/oauth2-server) 9.0.1 or later
 - [`lcobucci/jwt`](https://github.com/lcobucci/jwt) 5.6 or later
 
 ## Usage
