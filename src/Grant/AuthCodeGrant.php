@@ -28,6 +28,9 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
      */
     public const MAX_NONCE_LENGTH = 255;
 
+    /** The auth code payload League decrypted during the current token exchange. */
+    private ?string $decryptedAuthCode = null;
+
     /**
      * Overrides League's constructor.
      *
@@ -146,22 +149,38 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         ResponseTypeInterface $responseType,
         DateInterval $accessTokenTTL
     ): ResponseTypeInterface {
-        if ($responseType instanceof IdTokenResponse) {
-            // Reset first so a nonce from an earlier exchange can never carry over.
-            $responseType->setNonce(null);
+        // Checked before League saves anything, so a misconfigured server fails without side effects.
+        if (!$responseType instanceof IdTokenResponse) {
+            throw new LogicException('The response type must be ' . IdTokenResponse::class);
         }
 
-        $responseType = parent::respondToAccessTokenRequest($request, $responseType, $accessTokenTTL);
+        // Reset first so a nonce from an earlier exchange can never carry over.
+        $responseType->setNonce(null);
+        $this->decryptedAuthCode = null;
 
-        // The parent has validated the code, client, redirect URI and PKCE by now, so the code
-        // decrypts cleanly and the nonce comes from a fully verified payload. League exposes no
-        // hook for the payload it already decrypted, so the code is decrypted a second time here.
-        if ($responseType instanceof IdTokenResponse) {
-            $code = (string) $this->getRequestParameter('code', $request);
-            $responseType->setNonce($this->extractNonce($this->decrypt($code)));
+        parent::respondToAccessTokenRequest($request, $responseType, $accessTokenTTL);
+
+        // The parent has validated the code, client, redirect URI and PKCE by now, so the nonce
+        // comes from a fully verified payload. League exposes no hook for that payload, so
+        // decrypt() keeps a copy of it.
+        if ($this->decryptedAuthCode === null) {
+            throw new LogicException('The authorization code was not decrypted through decrypt()');
         }
+
+        $responseType->setNonce($this->extractNonce($this->decryptedAuthCode));
 
         return $responseType;
+    }
+
+    /**
+     * Overrides League's CryptTrait::decrypt().
+     *
+     * League decrypts only the auth code during the token exchange. Keeping the plaintext
+     * avoids decrypting it again to read the nonce, which is slow with a password key.
+     */
+    protected function decrypt(string $encryptedData): string
+    {
+        return $this->decryptedAuthCode = parent::decrypt($encryptedData);
     }
 
     private function createAuthorizationCodeResponse(

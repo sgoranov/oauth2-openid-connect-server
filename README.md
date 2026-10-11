@@ -96,7 +96,7 @@ $server->enableGrantType(
 return $server;
 ```
 
-Use the package-provided `OpenIDConnectServer\Grant\AuthCodeGrant` for authorization-code flows. It preserves an optional `nonce` authorization parameter in the encrypted authorization code and adds the same value to the resulting ID token.
+Use the package-provided `OpenIDConnectServer\Grant\AuthCodeGrant` for authorization-code flows. It preserves an optional `nonce` authorization parameter in the encrypted authorization code and adds the same value to the resulting ID token. It requires `IdTokenResponse` as the server's response type, and throws a `LogicException` on token requests otherwise.
 
 For nonce support, include a `nonce` parameter in the authorization request, for example `GET /authorize?response_type=code&client_id=client-id&scope=openid&nonce=random-request-value`. The client should generate a unique value for each request and verify that the ID token's `nonce` claim matches it. Nonces longer than 255 bytes (`AuthCodeGrant::MAX_NONCE_LENGTH`) or not valid UTF-8 are rejected with an `invalid_request` error, redirected to the client's redirect URI with its `state`.
 

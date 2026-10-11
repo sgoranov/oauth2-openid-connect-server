@@ -36,6 +36,7 @@ use OpenIDConnectServer\Test\Stubs\AccessTokenEntity;
 use OpenIDConnectServer\Test\Stubs\AuthCodeEntity;
 use OpenIDConnectServer\Test\Stubs\AuthCodeGrantWithFaultyDecrypt;
 use OpenIDConnectServer\Test\Stubs\AuthCodeGrantWithLeagueAuthorizationRequest;
+use OpenIDConnectServer\Test\Stubs\AuthCodeGrantWithOwnDecrypt;
 use OpenIDConnectServer\Test\Stubs\ClientEntity;
 use OpenIDConnectServer\Test\Stubs\IdentityProvider;
 use OpenIDConnectServer\Test\Stubs\ScopeEntity;
@@ -458,15 +459,25 @@ class AuthCodeGrantTest extends TestCase
         ];
     }
 
-    public function testPlainBearerResponseTypeIsUnaffectedByNonce(): void
+    public function testResponseTypeOtherThanIdTokenResponseIsRejected(): void
     {
         $code = $this->authorizeAndGetCode(['nonce' => 'bearer-nonce']);
 
-        $responseType = new BearerTokenResponse();
-        $response = $this->exchangeCode($code, [], $responseType);
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The response type must be ' . IdTokenResponse::class);
 
-        self::assertObjectHasProperty('access_token', $response);
-        self::assertObjectNotHasProperty('id_token', $response);
+        $this->exchangeCode($code, [], new BearerTokenResponse());
+    }
+
+    public function testDecryptOverrideThatBypassesParentIsRejected(): void
+    {
+        $code = $this->authorizeAndGetCode(['nonce' => 'must-not-be-lost']);
+        $this->grant = $this->createGrant(grantClass: AuthCodeGrantWithOwnDecrypt::class);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The authorization code was not decrypted through decrypt()');
+
+        $this->exchangeCode($code);
     }
 
     public function testMalformedCodeResultsInOAuthErrorRatherThanNonceFailure(): void
