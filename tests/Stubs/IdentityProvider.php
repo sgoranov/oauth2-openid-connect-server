@@ -8,6 +8,7 @@ class IdentityProvider implements IdentityProviderInterface
 {
     const NO_CLAIMSET = 'no_claimset';
     const NO_IDENTIFIER = 'no_idetifier';
+    const NO_USER = 'no_user';
 
     protected $entity;
 
@@ -22,6 +23,9 @@ class IdentityProvider implements IdentityProviderInterface
                 break;
             case self::NO_IDENTIFIER:
                 $this->entity = new UserNoIdentifierEntity();
+                break;
+            case self::NO_USER:
+                $this->entity = null;
                 break;
             default:
                 $this->entity = new UserEntity();

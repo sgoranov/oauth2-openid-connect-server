@@ -16,6 +16,7 @@ use Lcobucci\JWT\Token\Parser;
 use PHPUnit\Framework\TestCase;
 use League\OAuth2\Server\CryptKey;
 use League\OAuth2\Server\Entities\AccessTokenEntityInterface;
+use League\OAuth2\Server\Exception\OAuthServerException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
 use Laminas\Diactoros\Response;
@@ -236,6 +237,23 @@ class IdTokenResponseTest extends TestCase
         self::assertObjectHasProperty('access_token', $json);
         self::assertObjectNotHasProperty('id_token', $json);
         self::assertSame([], $identityProvider->lookups);
+    }
+
+    public function testMissingUserIsReportedAsInvalidGrant(): void
+    {
+        $responseType = new IdTokenResponse(
+            new IdentityProvider(IdentityProvider::NO_USER),
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
+        );
+
+        try {
+            $this->processResponseType($responseType, $this->privateKey(), ['openid']);
+            self::fail('Expected invalid_grant exception');
+        } catch (OAuthServerException $exception) {
+            self::assertSame('invalid_grant', $exception->getErrorType());
+            self::assertSame(400, $exception->getHttpStatusCode());
+        }
     }
 
     public static function provideScopeSets(): array

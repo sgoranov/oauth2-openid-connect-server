@@ -11,6 +11,7 @@ use OpenIDConnectServer\Entities\ClaimSetInterface;
 use League\OAuth2\Server\Entities\UserEntityInterface;
 use League\OAuth2\Server\Entities\AccessTokenEntityInterface;
 use League\OAuth2\Server\Entities\ScopeEntityInterface;
+use League\OAuth2\Server\Exception\OAuthServerException;
 use League\OAuth2\Server\ResponseTypes\BearerTokenResponse;
 use Lcobucci\JWT\Signer\Rsa\Sha256;
 use Lcobucci\JWT\Encoding\ChainedFormatter;
@@ -69,6 +70,11 @@ class IdTokenResponse extends BearerTokenResponse
 
         /** @var UserEntityInterface $userEntity */
         $userEntity = $this->identityProvider->getUserEntityByIdentifier($accessToken->getUserIdentifier());
+
+        // The user was deleted after the grant was issued, or a remote lookup found nothing.
+        if ($userEntity === null) {
+            throw OAuthServerException::invalidGrant('The user could not be found');
+        }
 
         if (false === is_a($userEntity, UserEntityInterface::class)) {
             throw new \RuntimeException('UserEntity must implement UserEntityInterface');
