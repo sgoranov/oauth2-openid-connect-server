@@ -174,6 +174,37 @@ class AuthCodeGrantTest extends TestCase
         );
     }
 
+    #[DataProvider('provideInvalidUtf8Nonces')]
+    public function testNonceThatIsNotValidUtf8IsRejectedAsInvalidRequest(string $nonce): void
+    {
+        try {
+            $this->grant->validateAuthorizationRequest($this->authorizationServerRequest(['nonce' => $nonce]));
+            self::fail('Expected invalid_request exception');
+        } catch (OAuthServerException $exception) {
+            self::assertSame('invalid_request', $exception->getErrorType());
+            self::assertSame('The nonce must be valid UTF-8', $exception->getHint());
+        }
+    }
+
+    public static function provideInvalidUtf8Nonces(): array
+    {
+        return [
+            'invalid continuation byte' => ["nonce-\xC3\x28"],
+            'truncated Cyrillic character' => [substr('ж', 0, 1)],
+            'Latin-1 encoded' => ["caf\xE9"],
+        ];
+    }
+
+    public function testInvalidUtf8NonceIsIgnoredWithoutOpenidScope(): void
+    {
+        $authorizationRequest = $this->grant->validateAuthorizationRequest(
+            $this->authorizationServerRequest(['nonce' => "caf\xE9", 'scope' => 'email'])
+        );
+
+        self::assertInstanceOf(AuthorizationRequest::class, $authorizationRequest);
+        self::assertNull($authorizationRequest->getNonce());
+    }
+
     public function testOverlongNonceIsIgnoredWithoutOpenidScope(): void
     {
         $authorizationRequest = $this->grant->validateAuthorizationRequest($this->authorizationServerRequest([

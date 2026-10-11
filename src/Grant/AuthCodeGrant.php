@@ -81,6 +81,11 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
             );
         }
 
+        // The nonce is JSON encoded into the authorization code, which only accepts UTF-8.
+        if ($nonce !== null && preg_match('//u', $nonce) !== 1) {
+            throw OAuthServerException::invalidRequest('nonce', 'The nonce must be valid UTF-8');
+        }
+
         if ($nonce !== null && $nonce !== '') {
             /** @var AuthorizationRequest $authorizationRequest */
             $authorizationRequest->setNonce($nonce);
