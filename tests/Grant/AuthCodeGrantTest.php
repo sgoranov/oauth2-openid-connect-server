@@ -35,6 +35,7 @@ use OpenIDConnectServer\StaticIssuerResolver;
 use OpenIDConnectServer\Test\Stubs\AccessTokenEntity;
 use OpenIDConnectServer\Test\Stubs\AuthCodeEntity;
 use OpenIDConnectServer\Test\Stubs\AuthCodeGrantWithFaultyDecrypt;
+use OpenIDConnectServer\Test\Stubs\AuthCodeGrantWithLeagueAuthorizationRequest;
 use OpenIDConnectServer\Test\Stubs\ClientEntity;
 use OpenIDConnectServer\Test\Stubs\IdentityProvider;
 use OpenIDConnectServer\Test\Stubs\ScopeEntity;
@@ -274,6 +275,26 @@ class AuthCodeGrantTest extends TestCase
         $payload = json_decode($this->crypt()->decrypt($this->authorizeAndGetCode()), true);
 
         self::assertArrayHasKey('nonce', $payload);
+        self::assertNull($payload['nonce']);
+    }
+
+    public function testNonceIsRejectedWhenSubclassRequestCannotCarryIt(): void
+    {
+        $grant = $this->createGrant(grantClass: AuthCodeGrantWithLeagueAuthorizationRequest::class);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('createAuthorizationRequest() must return');
+
+        $grant->validateAuthorizationRequest($this->authorizationServerRequest(['nonce' => 'some-nonce']));
+    }
+
+    public function testSubclassRequestWithoutNonceIsStillAccepted(): void
+    {
+        $grant = $this->createGrant(grantClass: AuthCodeGrantWithLeagueAuthorizationRequest::class);
+
+        $redirectParams = $this->approvedRedirectParams($grant, []);
+
+        $payload = json_decode($this->crypt()->decrypt($redirectParams['code']), true);
         self::assertNull($payload['nonce']);
     }
 

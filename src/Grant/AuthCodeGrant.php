@@ -87,7 +87,13 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         }
 
         if ($nonce !== null && $nonce !== '') {
-            /** @var AuthorizationRequest $authorizationRequest */
+            // A subclass may override createAuthorizationRequest() with a request that can't carry a nonce.
+            if (!$authorizationRequest instanceof AuthorizationRequest) {
+                throw new LogicException(
+                    'createAuthorizationRequest() must return ' . AuthorizationRequest::class . ' to support nonces'
+                );
+            }
+
             $authorizationRequest->setNonce($nonce);
         }
 
