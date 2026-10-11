@@ -36,6 +36,9 @@
             "OpenIDConnectServer\\Test\\": "tests/"
         }
     },
+    "config": {
+        "preferred-install": "dist"
+    },
     "scripts": {
         "test": "phpunit"
     }
