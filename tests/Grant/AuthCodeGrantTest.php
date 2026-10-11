@@ -164,6 +164,50 @@ class AuthCodeGrantTest extends TestCase
         }
     }
 
+    #[DataProvider('provideInvalidNonces')]
+    public function testInvalidNonceIsRedirectedToClientWithState(mixed $nonce): void
+    {
+        try {
+            $this->grant->validateAuthorizationRequest($this->authorizationServerRequest([
+                'nonce' => $nonce,
+                'redirect_uri' => self::REDIRECT_URI,
+                'state' => 'nonce-state',
+            ]));
+            self::fail('Expected invalid_request exception');
+        } catch (OAuthServerException $exception) {
+            $response = $exception->generateHttpResponse(new Response());
+            $location = $response->getHeaderLine('Location');
+            parse_str((string) parse_url($location, PHP_URL_QUERY), $redirectParams);
+
+            self::assertSame(302, $response->getStatusCode());
+            self::assertStringStartsWith(self::REDIRECT_URI . '?', $location);
+            self::assertSame('invalid_request', $redirectParams['error']);
+            self::assertSame('nonce-state', $redirectParams['state']);
+        }
+    }
+
+    public static function provideInvalidNonces(): array
+    {
+        return [
+            'array' => [['first', 'second']],
+            'too long' => [str_repeat('n', AuthCodeGrant::MAX_NONCE_LENGTH + 1)],
+            'not valid UTF-8' => ["caf\xE9"],
+        ];
+    }
+
+    public function testInvalidNonceIsRedirectedToRegisteredUriWhenRequestHasNone(): void
+    {
+        try {
+            $this->grant->validateAuthorizationRequest($this->authorizationServerRequest(['nonce' => "caf\xE9"]));
+            self::fail('Expected invalid_request exception');
+        } catch (OAuthServerException $exception) {
+            $location = $exception->generateHttpResponse(new Response())->getHeaderLine('Location');
+
+            self::assertStringStartsWith(self::REDIRECT_URI . '?', $location);
+            self::assertStringNotContainsString('state=', $location);
+        }
+    }
+
     public function testNonceLengthLimitIsMeasuredInBytes(): void
     {
         // 128 two-byte Cyrillic characters = 256 bytes, one over the limit despite being only 128 characters.

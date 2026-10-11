@@ -71,19 +71,19 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         // so League's trimming getQueryStringParameter() is not used here.
         $nonce = $request->getQueryParams()['nonce'] ?? null;
         if ($nonce !== null && !is_string($nonce)) {
-            throw OAuthServerException::invalidRequest('nonce');
+            throw $this->invalidNonce($authorizationRequest);
         }
 
         if ($nonce !== null && strlen($nonce) > self::MAX_NONCE_LENGTH) {
-            throw OAuthServerException::invalidRequest(
-                'nonce',
+            throw $this->invalidNonce(
+                $authorizationRequest,
                 sprintf('The nonce must not exceed %d bytes', self::MAX_NONCE_LENGTH)
             );
         }
 
         // The nonce is JSON encoded into the authorization code, which only accepts UTF-8.
         if ($nonce !== null && preg_match('//u', $nonce) !== 1) {
-            throw OAuthServerException::invalidRequest('nonce', 'The nonce must be valid UTF-8');
+            throw $this->invalidNonce($authorizationRequest, 'The nonce must be valid UTF-8');
         }
 
         if ($nonce !== null && $nonce !== '') {
@@ -208,6 +208,32 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         }
 
         return is_string($payload->nonce) ? $payload->nonce : null;
+    }
+
+    /**
+     * Builds an invalid_request error for the nonce that is redirected back to the client.
+     *
+     * League has validated the client and redirect URI by now, so RFC 6749 §4.1.2.1 requires
+     * the error to go to the redirect URI, with the state, rather than be shown to the user.
+     */
+    private function invalidNonce(
+        AuthorizationRequestInterface $authorizationRequest,
+        ?string $hint = null
+    ): OAuthServerException {
+        $error = OAuthServerException::invalidRequest('nonce', $hint);
+        $state = $authorizationRequest->getState();
+
+        return new OAuthServerException(
+            $error->getMessage(),
+            $error->getCode(),
+            $error->getErrorType(),
+            $error->getHttpStatusCode(),
+            $error->getHint(),
+            $this->makeRedirectUri(
+                $authorizationRequest->getRedirectUri() ?? $this->getClientRedirectUri($authorizationRequest->getClient()),
+                $state !== null ? ['state' => $state] : []
+            )
+        );
     }
 
     private function isOpenIdRequest(AuthorizationRequestInterface $authorizationRequest): bool
