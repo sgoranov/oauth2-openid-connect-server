@@ -34,6 +34,12 @@ class ClaimExtractorTest extends TestCase
         $extractor = new ClaimExtractor([$claims]);
     }
 
+    public function testOverridingDefaultScopeThrowsStandardInvalidArgumentException(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new ClaimExtractor([new ClaimSetEntity('profile', ['custom_claim'])]);
+    }
+
     public function testCanGetClaimSet()
     {
         $extractor = new ClaimExtractor();
