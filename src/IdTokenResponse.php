@@ -35,7 +35,7 @@ class IdTokenResponse extends BearerTokenResponse
         $this->nonce = $nonce;
     }
 
-    protected function getBuilder(AccessTokenEntityInterface $accessToken, UserEntityInterface $userEntity)
+    protected function getBuilder(#[\SensitiveParameter] AccessTokenEntityInterface $accessToken, UserEntityInterface $userEntity)
     {
         $claimsFormatter = ChainedFormatter::withUnixTimestampDates();
         $builder = new Builder(new JoseEncoder(), $claimsFormatter);
@@ -58,7 +58,7 @@ class IdTokenResponse extends BearerTokenResponse
      * @param AccessTokenEntityInterface $accessToken
      * @return array
      */
-    protected function getExtraParams(AccessTokenEntityInterface $accessToken): array
+    protected function getExtraParams(#[\SensitiveParameter] AccessTokenEntityInterface $accessToken): array
     {
         $params = parent::getExtraParams($accessToken);
         $params['scope'] = $this->formatScopes($accessToken->getScopes());

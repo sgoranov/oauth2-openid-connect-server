@@ -144,7 +144,8 @@ final class TenantIssuerResolver implements IssuerResolverInterface
     ) {
     }
 
-    public function resolve(AccessTokenEntityInterface $accessToken): string
+    // The access token holds the private key; keep it out of exception traces.
+    public function resolve(#[\SensitiveParameter] AccessTokenEntityInterface $accessToken): string
     {
         $clientId = $accessToken->getClient()->getIdentifier();
 

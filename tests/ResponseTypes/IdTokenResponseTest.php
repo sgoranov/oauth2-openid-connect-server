@@ -256,6 +256,28 @@ class IdTokenResponseTest extends TestCase
         }
     }
 
+    public function testAccessTokenIsRedactedFromExceptionTraces(): void
+    {
+        // The access token entity holds the private key; traces keep arguments when this is 0.
+        $previous = ini_set('zend.exception_ignore_args', '0');
+        $responseType = new IdTokenResponse(
+            new IdentityProvider(IdentityProvider::NO_USER),
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
+        );
+
+        try {
+            $this->processResponseType($responseType, $this->privateKey(), ['openid']);
+            self::fail('Expected invalid_grant exception');
+        } catch (OAuthServerException $exception) {
+            $frames = array_filter($exception->getTrace(), static fn (array $frame): bool => $frame['function'] === 'getExtraParams');
+            self::assertCount(1, $frames);
+            self::assertInstanceOf(\SensitiveParameterValue::class, current($frames)['args'][0]);
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $previous);
+        }
+    }
+
     public static function provideScopeSets(): array
     {
         return [
