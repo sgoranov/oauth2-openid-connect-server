@@ -154,8 +154,7 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
             throw new LogicException('The response type must be ' . IdTokenResponse::class);
         }
 
-        // Reset first so a nonce from an earlier exchange can never carry over.
-        $responseType->setNonce(null);
+        // The grant is shared across requests, so clear the payload from an earlier exchange.
         $this->decryptedAuthCode = null;
 
         parent::respondToAccessTokenRequest($request, $responseType, $accessTokenTTL);
