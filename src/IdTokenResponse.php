@@ -62,7 +62,8 @@ class IdTokenResponse extends BearerTokenResponse
         $params = parent::getExtraParams($accessToken);
         $params['scope'] = $this->formatScopes($accessToken->getScopes());
 
-        if (false === $this->isOpenIDRequest($accessToken->getScopes())) {
+        // Tokens without a user, e.g. from client_credentials, have no subject for an ID token.
+        if ($accessToken->getUserIdentifier() === null || false === $this->isOpenIDRequest($accessToken->getScopes())) {
             return $params;
         }
 

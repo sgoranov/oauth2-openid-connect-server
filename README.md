@@ -1,7 +1,7 @@
 # OAuth 2.0 OpenID Connect Server
 
-[![PHPUnit Tests](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml/badge.svg?branch=main)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml)
-[![Dependency Vulnerability Scan](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml/badge.svg?branch=main)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml)
+[![PHPUnit Tests](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml/badge.svg?branch=master)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml)
+[![Dependency Vulnerability Scan](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml/badge.svg?branch=master)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml)
 
 This library adds OpenID Connect ID tokens and scope-based user claims to [The PHP League's OAuth2 Server](https://github.com/thephpleague/oauth2-server).
 
@@ -38,7 +38,7 @@ The following classes will need to be configured and passed to the Authorization
 1. ClaimSet.  ClaimSet is a way to associate claims to a given scope.
 1. ClaimExtractor. The ClaimExtractor takes an array of ClaimSets and in addition provides default claims for the OpenID Connect specified scopes of: profile, email, phone and address.
 1. IssuerResolver. This returns the canonical OpenID Provider issuer for an access token.
-1. IdTokenResponse. This class must be passed to the AuthorizationServer during construction and is responsible for adding the `id_token` to the response. It also adds `scope` to every token response, for all grants, as described in [Granted scope](#granted-scope).
+1. IdTokenResponse. This class must be passed to the AuthorizationServer during construction and is responsible for adding the `id_token` to the response. Access tokens without a user, such as those from the `client_credentials` grant, get no `id_token` even when `openid` was granted. It also adds `scope` to every token response, for all grants, as described in [Granted scope](#granted-scope).
 1. ScopeRepository. The getScopeEntityByIdentifier($identifier) method must return a ScopeEntity for the `openid` scope in order to enable support. See examples.
 
 ### Example Configuration

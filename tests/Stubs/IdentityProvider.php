@@ -11,6 +11,9 @@ class IdentityProvider implements IdentityProviderInterface
 
     protected $entity;
 
+    /** @var list<string> Identifiers looked up, in order. */
+    public array $lookups = [];
+
     public function __construct($type = null)
     {
         switch($type) {
@@ -27,6 +30,8 @@ class IdentityProvider implements IdentityProviderInterface
 
     public function getUserEntityByIdentifier($identifier)
     {
+        $this->lookups[] = $identifier;
+
         return $this->entity;
     }
 
