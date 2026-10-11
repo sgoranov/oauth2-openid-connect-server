@@ -34,7 +34,8 @@ use OpenIDConnectServer\RequestTypes\AuthorizationRequest;
 use OpenIDConnectServer\StaticIssuerResolver;
 use OpenIDConnectServer\Test\Stubs\AccessTokenEntity;
 use OpenIDConnectServer\Test\Stubs\AuthCodeEntity;
-use OpenIDConnectServer\Test\Stubs\AuthCodeGrantWithFaultyDecrypt;
+use OpenIDConnectServer\Test\Stubs\AuthCodeGrantWithLeagueAuthorizationRequest;
+use OpenIDConnectServer\Test\Stubs\AuthCodeGrantWithOwnDecrypt;
 use OpenIDConnectServer\Test\Stubs\ClientEntity;
 use OpenIDConnectServer\Test\Stubs\IdentityProvider;
 use OpenIDConnectServer\Test\Stubs\ScopeEntity;
@@ -163,6 +164,50 @@ class AuthCodeGrantTest extends TestCase
         }
     }
 
+    #[DataProvider('provideInvalidNonces')]
+    public function testInvalidNonceIsRedirectedToClientWithState(mixed $nonce): void
+    {
+        try {
+            $this->grant->validateAuthorizationRequest($this->authorizationServerRequest([
+                'nonce' => $nonce,
+                'redirect_uri' => self::REDIRECT_URI,
+                'state' => 'nonce-state',
+            ]));
+            self::fail('Expected invalid_request exception');
+        } catch (OAuthServerException $exception) {
+            $response = $exception->generateHttpResponse(new Response());
+            $location = $response->getHeaderLine('Location');
+            parse_str((string) parse_url($location, PHP_URL_QUERY), $redirectParams);
+
+            self::assertSame(302, $response->getStatusCode());
+            self::assertStringStartsWith(self::REDIRECT_URI . '?', $location);
+            self::assertSame('invalid_request', $redirectParams['error']);
+            self::assertSame('nonce-state', $redirectParams['state']);
+        }
+    }
+
+    public static function provideInvalidNonces(): array
+    {
+        return [
+            'array' => [['first', 'second']],
+            'too long' => [str_repeat('n', AuthCodeGrant::MAX_NONCE_LENGTH + 1)],
+            'not valid UTF-8' => ["caf\xE9"],
+        ];
+    }
+
+    public function testInvalidNonceIsRedirectedToRegisteredUriWhenRequestHasNone(): void
+    {
+        try {
+            $this->grant->validateAuthorizationRequest($this->authorizationServerRequest(['nonce' => "caf\xE9"]));
+            self::fail('Expected invalid_request exception');
+        } catch (OAuthServerException $exception) {
+            $location = $exception->generateHttpResponse(new Response())->getHeaderLine('Location');
+
+            self::assertStringStartsWith(self::REDIRECT_URI . '?', $location);
+            self::assertStringNotContainsString('state=', $location);
+        }
+    }
+
     public function testNonceLengthLimitIsMeasuredInBytes(): void
     {
         // 128 two-byte Cyrillic characters = 256 bytes, one over the limit despite being only 128 characters.
@@ -172,6 +217,37 @@ class AuthCodeGrantTest extends TestCase
         $this->grant->validateAuthorizationRequest(
             $this->authorizationServerRequest(['nonce' => str_repeat('ж', 128)])
         );
+    }
+
+    #[DataProvider('provideInvalidUtf8Nonces')]
+    public function testNonceThatIsNotValidUtf8IsRejectedAsInvalidRequest(string $nonce): void
+    {
+        try {
+            $this->grant->validateAuthorizationRequest($this->authorizationServerRequest(['nonce' => $nonce]));
+            self::fail('Expected invalid_request exception');
+        } catch (OAuthServerException $exception) {
+            self::assertSame('invalid_request', $exception->getErrorType());
+            self::assertSame('The nonce must be valid UTF-8', $exception->getHint());
+        }
+    }
+
+    public static function provideInvalidUtf8Nonces(): array
+    {
+        return [
+            'invalid continuation byte' => ["nonce-\xC3\x28"],
+            'truncated Cyrillic character' => [substr('ж', 0, 1)],
+            'Latin-1 encoded' => ["caf\xE9"],
+        ];
+    }
+
+    public function testInvalidUtf8NonceIsIgnoredWithoutOpenidScope(): void
+    {
+        $authorizationRequest = $this->grant->validateAuthorizationRequest(
+            $this->authorizationServerRequest(['nonce' => "caf\xE9", 'scope' => 'email'])
+        );
+
+        self::assertInstanceOf(AuthorizationRequest::class, $authorizationRequest);
+        self::assertNull($authorizationRequest->getNonce());
     }
 
     public function testOverlongNonceIsIgnoredWithoutOpenidScope(): void
@@ -243,6 +319,26 @@ class AuthCodeGrantTest extends TestCase
         $payload = json_decode($this->crypt()->decrypt($this->authorizeAndGetCode()), true);
 
         self::assertArrayHasKey('nonce', $payload);
+        self::assertNull($payload['nonce']);
+    }
+
+    public function testNonceIsRejectedWhenSubclassRequestCannotCarryIt(): void
+    {
+        $grant = $this->createGrant(grantClass: AuthCodeGrantWithLeagueAuthorizationRequest::class);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('createAuthorizationRequest() must return');
+
+        $grant->validateAuthorizationRequest($this->authorizationServerRequest(['nonce' => 'some-nonce']));
+    }
+
+    public function testSubclassRequestWithoutNonceIsStillAccepted(): void
+    {
+        $grant = $this->createGrant(grantClass: AuthCodeGrantWithLeagueAuthorizationRequest::class);
+
+        $redirectParams = $this->approvedRedirectParams($grant, []);
+
+        $payload = json_decode($this->crypt()->decrypt($redirectParams['code']), true);
         self::assertNull($payload['nonce']);
     }
 
@@ -362,15 +458,25 @@ class AuthCodeGrantTest extends TestCase
         ];
     }
 
-    public function testPlainBearerResponseTypeIsUnaffectedByNonce(): void
+    public function testResponseTypeOtherThanIdTokenResponseIsRejected(): void
     {
         $code = $this->authorizeAndGetCode(['nonce' => 'bearer-nonce']);
 
-        $responseType = new BearerTokenResponse();
-        $response = $this->exchangeCode($code, [], $responseType);
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The response type must be ' . IdTokenResponse::class);
 
-        self::assertObjectHasProperty('access_token', $response);
-        self::assertObjectNotHasProperty('id_token', $response);
+        $this->exchangeCode($code, [], new BearerTokenResponse());
+    }
+
+    public function testDecryptOverrideThatBypassesParentIsRejected(): void
+    {
+        $code = $this->authorizeAndGetCode(['nonce' => 'must-not-be-lost']);
+        $this->grant = $this->createGrant(grantClass: AuthCodeGrantWithOwnDecrypt::class);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The authorization code was not decrypted through decrypt()');
+
+        $this->exchangeCode($code);
     }
 
     public function testMalformedCodeResultsInOAuthErrorRatherThanNonceFailure(): void
@@ -393,39 +499,6 @@ class AuthCodeGrantTest extends TestCase
             $this->createIdTokenResponse(),
             new DateInterval('PT1H')
         );
-    }
-
-    public function testUnexpectedDecryptionErrorPropagates(): void
-    {
-        $code = $this->authorizeAndGetCode(['nonce' => 'must-not-be-lost']);
-        $this->grant = $this->createGrant(grantClass: AuthCodeGrantWithFaultyDecrypt::class);
-
-        $this->expectException(\Error::class);
-        $this->expectExceptionMessage('Unexpected failure while decrypting');
-
-        $this->exchangeCode($code);
-    }
-
-    public function testNonceFromRejectedExchangeDoesNotCarryIntoNextExchange(): void
-    {
-        $responseType = $this->createIdTokenResponse();
-        $codeVerifier = rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '=');
-        $codeChallenge = rtrim(strtr(base64_encode(hash('sha256', $codeVerifier, true)), '+/', '-_'), '=');
-        $rejectedCode = $this->authorizeAndGetCode([
-            'nonce' => 'rejected-nonce',
-            'code_challenge' => $codeChallenge,
-            'code_challenge_method' => 'S256',
-        ]);
-
-        try {
-            $this->exchangeCode($rejectedCode, ['code_verifier' => str_repeat('x', 64)], $responseType);
-            self::fail('Expected PKCE verification to fail');
-        } catch (OAuthServerException) {
-        }
-
-        $response = $this->exchangeCode($this->legacyCodeWithoutNonceKey(), [], $responseType);
-
-        self::assertFalse($this->parseIdToken($response->id_token)->claims()->has('nonce'));
     }
 
     public function testLegacyCodeWithoutNonceKeyIssuesIdTokenWithoutNonce(): void

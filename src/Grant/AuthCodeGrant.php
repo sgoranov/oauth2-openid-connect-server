@@ -28,6 +28,9 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
      */
     public const MAX_NONCE_LENGTH = 255;
 
+    /** The auth code payload League decrypted during the current token exchange. */
+    private ?string $decryptedAuthCode = null;
+
     /**
      * Overrides League's constructor.
      *
@@ -71,18 +74,29 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         // so League's trimming getQueryStringParameter() is not used here.
         $nonce = $request->getQueryParams()['nonce'] ?? null;
         if ($nonce !== null && !is_string($nonce)) {
-            throw OAuthServerException::invalidRequest('nonce');
+            throw $this->invalidNonce($authorizationRequest);
         }
 
         if ($nonce !== null && strlen($nonce) > self::MAX_NONCE_LENGTH) {
-            throw OAuthServerException::invalidRequest(
-                'nonce',
+            throw $this->invalidNonce(
+                $authorizationRequest,
                 sprintf('The nonce must not exceed %d bytes', self::MAX_NONCE_LENGTH)
             );
         }
 
+        // The nonce is JSON encoded into the authorization code, which only accepts UTF-8.
+        if ($nonce !== null && preg_match('//u', $nonce) !== 1) {
+            throw $this->invalidNonce($authorizationRequest, 'The nonce must be valid UTF-8');
+        }
+
         if ($nonce !== null && $nonce !== '') {
-            /** @var AuthorizationRequest $authorizationRequest */
+            // A subclass may override createAuthorizationRequest() with a request that can't carry a nonce.
+            if (!$authorizationRequest instanceof AuthorizationRequest) {
+                throw new LogicException(
+                    'createAuthorizationRequest() must return ' . AuthorizationRequest::class . ' to support nonces'
+                );
+            }
+
             $authorizationRequest->setNonce($nonce);
         }
 
@@ -135,22 +149,37 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         ResponseTypeInterface $responseType,
         DateInterval $accessTokenTTL
     ): ResponseTypeInterface {
-        if ($responseType instanceof IdTokenResponse) {
-            // Reset first so a nonce from an earlier exchange can never carry over.
-            $responseType->setNonce(null);
+        // Checked before League saves anything, so a misconfigured server fails without side effects.
+        if (!$responseType instanceof IdTokenResponse) {
+            throw new LogicException('The response type must be ' . IdTokenResponse::class);
         }
 
-        $responseType = parent::respondToAccessTokenRequest($request, $responseType, $accessTokenTTL);
+        // The grant is shared across requests, so clear the payload from an earlier exchange.
+        $this->decryptedAuthCode = null;
 
-        // The parent has validated the code, client, redirect URI and PKCE by now, so the code
-        // decrypts cleanly and the nonce comes from a fully verified payload. League exposes no
-        // hook for the payload it already decrypted, so the code is decrypted a second time here.
-        if ($responseType instanceof IdTokenResponse) {
-            $code = (string) $this->getRequestParameter('code', $request);
-            $responseType->setNonce($this->extractNonce($this->decrypt($code)));
+        parent::respondToAccessTokenRequest($request, $responseType, $accessTokenTTL);
+
+        // The parent has validated the code, client, redirect URI and PKCE by now, so the nonce
+        // comes from a fully verified payload. League exposes no hook for that payload, so
+        // decrypt() keeps a copy of it.
+        if ($this->decryptedAuthCode === null) {
+            throw new LogicException('The authorization code was not decrypted through decrypt()');
         }
+
+        $responseType->setNonce($this->extractNonce($this->decryptedAuthCode));
 
         return $responseType;
+    }
+
+    /**
+     * Overrides League's CryptTrait::decrypt().
+     *
+     * League decrypts only the auth code during the token exchange. Keeping the plaintext
+     * avoids decrypting it again to read the nonce, which is slow with a password key.
+     */
+    protected function decrypt(string $encryptedData): string
+    {
+        return $this->decryptedAuthCode = parent::decrypt($encryptedData);
     }
 
     private function createAuthorizationCodeResponse(
@@ -197,6 +226,32 @@ class AuthCodeGrant extends LeagueAuthCodeGrant
         }
 
         return is_string($payload->nonce) ? $payload->nonce : null;
+    }
+
+    /**
+     * Builds an invalid_request error for the nonce that is redirected back to the client.
+     *
+     * League has validated the client and redirect URI by now, so RFC 6749 §4.1.2.1 requires
+     * the error to go to the redirect URI, with the state, rather than be shown to the user.
+     */
+    private function invalidNonce(
+        AuthorizationRequestInterface $authorizationRequest,
+        ?string $hint = null
+    ): OAuthServerException {
+        $error = OAuthServerException::invalidRequest('nonce', $hint);
+        $state = $authorizationRequest->getState();
+
+        return new OAuthServerException(
+            $error->getMessage(),
+            $error->getCode(),
+            $error->getErrorType(),
+            $error->getHttpStatusCode(),
+            $error->getHint(),
+            $this->makeRedirectUri(
+                $authorizationRequest->getRedirectUri() ?? $this->getClientRedirectUri($authorizationRequest->getClient()),
+                $state !== null ? ['state' => $state] : []
+            )
+        );
     }
 
     private function isOpenIdRequest(AuthorizationRequestInterface $authorizationRequest): bool

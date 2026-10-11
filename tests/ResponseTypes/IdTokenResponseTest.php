@@ -16,6 +16,7 @@ use Lcobucci\JWT\Token\Parser;
 use PHPUnit\Framework\TestCase;
 use League\OAuth2\Server\CryptKey;
 use League\OAuth2\Server\Entities\AccessTokenEntityInterface;
+use League\OAuth2\Server\Exception\OAuthServerException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
 use Laminas\Diactoros\Response;
@@ -219,6 +220,64 @@ class IdTokenResponseTest extends TestCase
         self::assertSame($expectIdToken, property_exists($json, 'id_token'));
     }
 
+    public function testNoIdTokenForAccessTokenWithoutUser(): void
+    {
+        // e.g. client_credentials, where the client is acting on its own behalf.
+        $identityProvider = new IdentityProvider();
+        $responseType = new IdTokenResponse($identityProvider, new ClaimExtractor(), new StaticIssuerResolver(self::ISSUER));
+
+        $json = $this->decodeResponse($this->processResponseType(
+            $responseType,
+            $this->privateKey(),
+            ['openid', 'email'],
+            null
+        ));
+
+        self::assertSame('openid email', $json->scope);
+        self::assertObjectHasProperty('access_token', $json);
+        self::assertObjectNotHasProperty('id_token', $json);
+        self::assertSame([], $identityProvider->lookups);
+    }
+
+    public function testMissingUserIsReportedAsInvalidGrant(): void
+    {
+        $responseType = new IdTokenResponse(
+            new IdentityProvider(IdentityProvider::NO_USER),
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
+        );
+
+        try {
+            $this->processResponseType($responseType, $this->privateKey(), ['openid']);
+            self::fail('Expected invalid_grant exception');
+        } catch (OAuthServerException $exception) {
+            self::assertSame('invalid_grant', $exception->getErrorType());
+            self::assertSame(400, $exception->getHttpStatusCode());
+        }
+    }
+
+    public function testAccessTokenIsRedactedFromExceptionTraces(): void
+    {
+        // The access token entity holds the private key; traces keep arguments when this is 0.
+        $previous = ini_set('zend.exception_ignore_args', '0');
+        $responseType = new IdTokenResponse(
+            new IdentityProvider(IdentityProvider::NO_USER),
+            new ClaimExtractor(),
+            new StaticIssuerResolver(self::ISSUER)
+        );
+
+        try {
+            $this->processResponseType($responseType, $this->privateKey(), ['openid']);
+            self::fail('Expected invalid_grant exception');
+        } catch (OAuthServerException $exception) {
+            $frames = array_filter($exception->getTrace(), static fn (array $frame): bool => $frame['function'] === 'getExtraParams');
+            self::assertCount(1, $frames);
+            self::assertInstanceOf(\SensitiveParameterValue::class, current($frames)['args'][0]);
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $previous);
+        }
+    }
+
     public static function provideScopeSets(): array
     {
         return [
@@ -287,8 +346,12 @@ KEY
         );
     }
 
-    private function processResponseType($responseType, $privateKey,  array $scopeNames = ['basic'])
-    {
+    private function processResponseType(
+        $responseType,
+        $privateKey,
+        array $scopeNames = ['basic'],
+        ?string $userIdentifier = '123'
+    ) {
         $responseType->setPrivateKey($privateKey);
 
         $responseType->setEncryptionKey(base64_encode(random_bytes(36)));
@@ -305,6 +368,9 @@ KEY
 
         $accessToken = new AccessTokenEntity();
         $accessToken->setIdentifier('abcdef');
+        if ($userIdentifier !== null) {
+            $accessToken->setUserIdentifier($userIdentifier);
+        }
 
         $accessToken->setPrivateKey($privateKey);
         $accessToken->setExpiryDateTime(

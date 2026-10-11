@@ -6,7 +6,7 @@
 namespace OpenIDConnectServer\Exception;
 
 
-class InvalidArgumentException extends \Exception
+class InvalidArgumentException extends \InvalidArgumentException
 {
 
 }

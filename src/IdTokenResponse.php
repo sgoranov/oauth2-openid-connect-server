@@ -11,6 +11,7 @@ use OpenIDConnectServer\Entities\ClaimSetInterface;
 use League\OAuth2\Server\Entities\UserEntityInterface;
 use League\OAuth2\Server\Entities\AccessTokenEntityInterface;
 use League\OAuth2\Server\Entities\ScopeEntityInterface;
+use League\OAuth2\Server\Exception\OAuthServerException;
 use League\OAuth2\Server\ResponseTypes\BearerTokenResponse;
 use Lcobucci\JWT\Signer\Rsa\Sha256;
 use Lcobucci\JWT\Encoding\ChainedFormatter;
@@ -34,7 +35,7 @@ class IdTokenResponse extends BearerTokenResponse
         $this->nonce = $nonce;
     }
 
-    protected function getBuilder(AccessTokenEntityInterface $accessToken, UserEntityInterface $userEntity)
+    protected function getBuilder(#[\SensitiveParameter] AccessTokenEntityInterface $accessToken, UserEntityInterface $userEntity)
     {
         $claimsFormatter = ChainedFormatter::withUnixTimestampDates();
         $builder = new Builder(new JoseEncoder(), $claimsFormatter);
@@ -57,17 +58,23 @@ class IdTokenResponse extends BearerTokenResponse
      * @param AccessTokenEntityInterface $accessToken
      * @return array
      */
-    protected function getExtraParams(AccessTokenEntityInterface $accessToken): array
+    protected function getExtraParams(#[\SensitiveParameter] AccessTokenEntityInterface $accessToken): array
     {
         $params = parent::getExtraParams($accessToken);
         $params['scope'] = $this->formatScopes($accessToken->getScopes());
 
-        if (false === $this->isOpenIDRequest($accessToken->getScopes())) {
+        // Tokens without a user, e.g. from client_credentials, have no subject for an ID token.
+        if ($accessToken->getUserIdentifier() === null || false === $this->isOpenIDRequest($accessToken->getScopes())) {
             return $params;
         }
 
         /** @var UserEntityInterface $userEntity */
         $userEntity = $this->identityProvider->getUserEntityByIdentifier($accessToken->getUserIdentifier());
+
+        // The user was deleted after the grant was issued, or a remote lookup found nothing.
+        if ($userEntity === null) {
+            throw OAuthServerException::invalidGrant('The user could not be found');
+        }
 
         if (false === is_a($userEntity, UserEntityInterface::class)) {
             throw new \RuntimeException('UserEntity must implement UserEntityInterface');

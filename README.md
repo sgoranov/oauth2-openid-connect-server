@@ -1,7 +1,7 @@
 # OAuth 2.0 OpenID Connect Server
 
-[![PHPUnit Tests](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml/badge.svg?branch=main)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml)
-[![Dependency Vulnerability Scan](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml/badge.svg?branch=main)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml)
+[![PHPUnit Tests](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml/badge.svg?branch=master)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/phpunit.yml)
+[![Dependency Vulnerability Scan](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml/badge.svg?branch=master)](https://github.com/sgoranov/oauth2-openid-connect-server/actions/workflows/vulnerability-scan.yml)
 
 This library adds OpenID Connect ID tokens and scope-based user claims to [The PHP League's OAuth2 Server](https://github.com/thephpleague/oauth2-server).
 
@@ -24,7 +24,7 @@ These updates include breaking changes from the original package, particularly t
 ## Requirements
 
 - PHP 8.2 or later
-- [`league/oauth2-server`](https://github.com/thephpleague/oauth2-server) 9.x
+- [`league/oauth2-server`](https://github.com/thephpleague/oauth2-server) 9.0.1 or later
 - [`lcobucci/jwt`](https://github.com/lcobucci/jwt) 5.6 or later
 
 ## Usage
@@ -38,7 +38,7 @@ The following classes will need to be configured and passed to the Authorization
 1. ClaimSet.  ClaimSet is a way to associate claims to a given scope.
 1. ClaimExtractor. The ClaimExtractor takes an array of ClaimSets and in addition provides default claims for the OpenID Connect specified scopes of: profile, email, phone and address.
 1. IssuerResolver. This returns the canonical OpenID Provider issuer for an access token.
-1. IdTokenResponse. This class must be passed to the AuthorizationServer during construction and is responsible for adding the `id_token` to the response. It also adds `scope` to every token response, for all grants, as described in [Granted scope](#granted-scope).
+1. IdTokenResponse. This class must be passed to the AuthorizationServer during construction and is responsible for adding the `id_token` to the response. Access tokens without a user, such as those from the `client_credentials` grant, get no `id_token` even when `openid` was granted. It also adds `scope` to every token response, for all grants, as described in [Granted scope](#granted-scope).
 1. ScopeRepository. The getScopeEntityByIdentifier($identifier) method must return a ScopeEntity for the `openid` scope in order to enable support. See examples.
 
 ### Example Configuration
@@ -96,9 +96,9 @@ $server->enableGrantType(
 return $server;
 ```
 
-Use the package-provided `OpenIDConnectServer\Grant\AuthCodeGrant` for authorization-code flows. It preserves an optional `nonce` authorization parameter in the encrypted authorization code and adds the same value to the resulting ID token.
+Use the package-provided `OpenIDConnectServer\Grant\AuthCodeGrant` for authorization-code flows. It preserves an optional `nonce` authorization parameter in the encrypted authorization code and adds the same value to the resulting ID token. It requires `IdTokenResponse` as the server's response type, and throws a `LogicException` on token requests otherwise.
 
-For nonce support, include a `nonce` parameter in the authorization request, for example `GET /authorize?response_type=code&client_id=client-id&scope=openid&nonce=random-request-value`. The client should generate a unique value for each request and verify that the ID token's `nonce` claim matches it. Nonces longer than 255 bytes (`AuthCodeGrant::MAX_NONCE_LENGTH`) are rejected with `invalid_request`.
+For nonce support, include a `nonce` parameter in the authorization request, for example `GET /authorize?response_type=code&client_id=client-id&scope=openid&nonce=random-request-value`. The client should generate a unique value for each request and verify that the ID token's `nonce` claim matches it. Nonces longer than 255 bytes (`AuthCodeGrant::MAX_NONCE_LENGTH`) or not valid UTF-8 are rejected with an `invalid_request` error, redirected to the client's redirect URI with its `state`.
 
 Nonce support covers the authorization-code flow only. The OpenID Connect implicit flow (`response_type=id_token`) is not supported; League's `ImplicitGrant` issues access tokens only, without an ID token.
 
@@ -144,7 +144,8 @@ final class TenantIssuerResolver implements IssuerResolverInterface
     ) {
     }
 
-    public function resolve(AccessTokenEntityInterface $accessToken): string
+    // The access token holds the private key; keep it out of exception traces.
+    public function resolve(#[\SensitiveParameter] AccessTokenEntityInterface $accessToken): string
     {
         $clientId = $accessToken->getClient()->getIdentifier();
 

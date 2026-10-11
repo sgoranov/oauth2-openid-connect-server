@@ -8,8 +8,12 @@ class IdentityProvider implements IdentityProviderInterface
 {
     const NO_CLAIMSET = 'no_claimset';
     const NO_IDENTIFIER = 'no_idetifier';
+    const NO_USER = 'no_user';
 
     protected $entity;
+
+    /** @var list<string> Identifiers looked up, in order. */
+    public array $lookups = [];
 
     public function __construct($type = null)
     {
@@ -20,6 +24,9 @@ class IdentityProvider implements IdentityProviderInterface
             case self::NO_IDENTIFIER:
                 $this->entity = new UserNoIdentifierEntity();
                 break;
+            case self::NO_USER:
+                $this->entity = null;
+                break;
             default:
                 $this->entity = new UserEntity();
         }
@@ -27,6 +34,8 @@ class IdentityProvider implements IdentityProviderInterface
 
     public function getUserEntityByIdentifier($identifier)
     {
+        $this->lookups[] = $identifier;
+
         return $this->entity;
     }
 
