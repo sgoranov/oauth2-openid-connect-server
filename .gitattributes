@@ -7,3 +7,7 @@
 .scrutinizer.yml export-ignore
 /phpunit.xml.dist export-ignore
 /README.md export-ignore
+/bin export-ignore
+/composer.lock export-ignore
+/docker-compose.yml export-ignore
+/examples export-ignore
