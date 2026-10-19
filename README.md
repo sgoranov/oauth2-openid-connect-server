@@ -27,21 +27,81 @@ These updates include breaking changes from the original package, particularly t
 - [`league/oauth2-server`](https://github.com/thephpleague/oauth2-server) 9.0.1 or later
 - [`lcobucci/jwt`](https://github.com/lcobucci/jwt) 5.6 or later
 
+## Install
+
+Install the latest compatible 1.x release with Composer:
+
+```bash
+composer require sgoranov/oauth2-openid-connect-server:^1.0
+```
+
 ## Usage
 
-The following classes will need to be configured and passed to the AuthorizationServer in order to provide OpenID Connect functionality.
+This library plugs into League's `AuthorizationServer` as its response type. Besides the repositories League already needs, you provide a user entity that exposes claims and an identity provider that looks users up. A runnable Slim application with in-memory implementations is in [`examples/`](examples/).
 
-1. IdentityRepository.  This MUST implement the OpenIDConnectServer\Repositories\IdentityProviderInterface and return the identity of the user based on the return value of $accessToken->getUserIdentifier().
-   1. The IdentityRepository MUST return a UserEntity that implements the following interfaces
-      1. OpenIDConnectServer\Entities\ClaimSetInterface
-      1. League\OAuth2\Server\Entities\UserEntityInterface.
-1. ClaimSet.  ClaimSet is a way to associate claims to a given scope.
-1. ClaimExtractor. The ClaimExtractor takes an array of ClaimSets and in addition provides default claims for the OpenID Connect specified scopes of: profile, email, phone and address.
-1. IssuerResolver. This returns the canonical OpenID Provider issuer for an access token.
-1. IdTokenResponse. This class must be passed to the AuthorizationServer during construction and is responsible for adding the `id_token` to the response. Access tokens without a user, such as those from the `client_credentials` grant, get no `id_token` even when `openid` was granted. It also adds `scope` to every token response, for all grants, as described in [Granted scope](#granted-scope).
-1. ScopeRepository. The getScopeEntityByIdentifier($identifier) method must return a ScopeEntity for the `openid` scope in order to enable support. See examples.
+| Component | Provided by | Purpose |
+| --- | --- | --- |
+| `IdTokenResponse` | This library | The server's response type. Adds `id_token` and `scope` to token responses. |
+| `Grant\AuthCodeGrant` | This library | Replaces League's `AuthCodeGrant` and carries the authorization request's `nonce` into the ID token. |
+| `ClaimExtractor` | This library | Decides which user claims each granted scope releases. |
+| `StaticIssuerResolver` | This library | Supplies the issuer (`iss`). Implement `IssuerResolverInterface` instead to serve several issuers. |
+| User entity | You | Implements `UserEntityInterface` and `ClaimSetInterface`, and returns the user's claims. |
+| Identity provider | You | Implements `IdentityProviderInterface` and loads a user entity by its identifier. |
+| Scope repository | You, already required by League | Must recognize the `openid` scope. |
 
-### Example Configuration
+### 1. Recognize the `openid` scope
+
+Your scope repository's `getScopeEntityByIdentifier()` must return a scope entity for `openid`. If it returns `null`, League rejects requests for that scope with `invalid_scope` and no ID token is issued. The same applies to `profile`, `email` and any custom scope whose claims you want to release. See [`ScopeRepository`](examples/src/Repositories/ScopeRepository.php) in the examples.
+
+### 2. Expose users and their claims
+
+Your user entity implements League's `UserEntityInterface` and this library's `ClaimSetInterface`. `getClaims()` returns the user's attributes as claim name and value pairs; the granted scopes decide which of them reach the ID token.
+
+```php
+use League\OAuth2\Server\Entities\Traits\EntityTrait;
+use League\OAuth2\Server\Entities\UserEntityInterface;
+use OpenIDConnectServer\Entities\ClaimSetInterface;
+
+class UserEntity implements UserEntityInterface, ClaimSetInterface
+{
+    use EntityTrait;
+
+    protected array $attributes = [];
+
+    public function getClaims(): array
+    {
+        return $this->attributes;
+    }
+}
+```
+
+Your identity provider implements `OpenIDConnectServer\Repositories\IdentityProviderInterface`. Its one method, `getUserEntityByIdentifier($identifier)`, receives the access token's user identifier and returns that user's entity. Return `null` if the user no longer exists; the token request then fails with `invalid_grant`. An entity that does not implement both interfaces causes a `RuntimeException`.
+
+### 3. Choose which claims each scope releases
+
+A claim set ties a scope to the claims it releases. `ClaimExtractor` comes with the four scopes defined by OpenID Connect:
+
+| Scope | Claims |
+| --- | --- |
+| `profile` | `name`, `family_name`, `given_name`, `middle_name`, `nickname`, `preferred_username`, `profile`, `picture`, `website`, `gender`, `birthdate`, `zoneinfo`, `locale`, `updated_at` |
+| `email` | `email`, `email_verified` |
+| `address` | `address` |
+| `phone` | `phone_number`, `phone_number_verified` |
+
+These four are reserved: passing a claim set for one of them throws `OpenIDConnectServer\Exception\InvalidArgumentException`. Add your own scopes through the constructor or `addClaimSet()`:
+
+```php
+use OpenIDConnectServer\ClaimExtractor;
+use OpenIDConnectServer\Entities\ClaimSetEntity;
+
+$claimExtractor = new ClaimExtractor([
+    new ClaimSetEntity('company', ['company_name', 'company_phone', 'company_address']),
+]);
+```
+
+A token granted `openid company` then carries whichever of those claims the user's `getClaims()` returns. Every ID token also carries the registered claims `iss`, `sub`, `aud`, `iat` and `exp`, with `exp` matching the access token's expiry.
+
+### 4. Configure the server
 
 ```php
 use League\OAuth2\Server\AuthorizationServer;
@@ -96,13 +156,19 @@ $server->enableGrantType(
 return $server;
 ```
 
-Use the package-provided `OpenIDConnectServer\Grant\AuthCodeGrant` for authorization-code flows. It preserves an optional `nonce` authorization parameter in the encrypted authorization code and adds the same value to the resulting ID token. It requires `IdTokenResponse` as the server's response type, and throws a `LogicException` on token requests otherwise.
+`IdTokenResponse` adds an `id_token` to every token response whose access token was granted `openid` and belongs to a user. Access tokens without a user, such as those from the `client_credentials` grant, get no `id_token`. It also adds `scope` to every response, as described in [Granted scope](#granted-scope). To set the ID token's `kid` header, pass the key identifier as a fourth constructor argument.
+
+Use `OpenIDConnectServer\Grant\AuthCodeGrant` instead of League's grant for authorization-code flows, so that nonces reach the ID token (see [Nonces](#nonces)). It requires `IdTokenResponse` as the server's response type, and throws a `LogicException` on token requests otherwise.
+
+Once configured, use the server as described in the [OAuth2 Server documentation](https://oauth2.thephpleague.com/).
+
+### Nonces
+
+`OpenIDConnectServer\Grant\AuthCodeGrant` takes the same constructor arguments as League's `AuthCodeGrant`. It preserves an optional `nonce` authorization parameter in the encrypted authorization code and adds the same value to the resulting ID token.
 
 For nonce support, include a `nonce` parameter in the authorization request, for example `GET /authorize?response_type=code&client_id=client-id&scope=openid&nonce=random-request-value`. The client should generate a unique value for each request and verify that the ID token's `nonce` claim matches it. Nonces longer than 255 bytes (`AuthCodeGrant::MAX_NONCE_LENGTH`) or not valid UTF-8 are rejected with an `invalid_request` error, redirected to the client's redirect URI with its `state`.
 
 Nonce support covers the authorization-code flow only. The OpenID Connect implicit flow (`response_type=id_token`) is not supported; League's `ImplicitGrant` issues access tokens only, without an ID token.
-
-After the server has been configured it should be used as described in the [OAuth2 Server documentation](https://oauth2.thephpleague.com/).
 
 ### Granted scope
 
@@ -156,81 +222,6 @@ final class TenantIssuerResolver implements IssuerResolverInterface
 ```
 
 Do not build the issuer from `$_SERVER['HTTP_HOST']` or another untrusted request header.
-
-## UserEntity
-
-In order for this library to work properly you will need to add your IdentityProvider to the IdTokenResponse object. This will be used internally to look up a UserEntity by its identifier. Additionally, your UserEntity must implement the ClaimSetInterface which includes a single method getClaims(). The getClaims() method should return a list of attributes as key/value pairs that can be returned if the proper scope has been defined.
-
-```php
-use League\OAuth2\Server\Entities\Traits\EntityTrait;
-use League\OAuth2\Server\Entities\UserEntityInterface;
-use OpenIDConnectServer\Entities\ClaimSetInterface;
-
-class UserEntity implements UserEntityInterface, ClaimSetInterface
-{
-    use EntityTrait;
-
-    protected array $attributes = [];
-
-    public function getClaims(): array
-    {
-        return $this->attributes;
-    }
-}
-```
-
-## ClaimSets
-
-A ClaimSet is a scope that defines a list of claims.
-
-```php
-// Example of the profile ClaimSet
-$claimSet = new ClaimSetEntity('profile', [
-    'name',
-    'family_name',
-    'given_name',
-    'middle_name',
-    'nickname',
-    'preferred_username',
-    'profile',
-    'picture',
-    'website',
-    'gender',
-    'birthdate',
-    'zoneinfo',
-    'locale',
-    'updated_at'
-]);
-```
-
-As you can see from the above, profile lists a set of claims that can be extracted from our UserEntity if the profile scope is included with the authorization request.
-
-### Adding Custom ClaimSets
-
-At some point you will likely want to include your own group of custom claims. To do this you will need to create a ClaimSetEntity, give it a scope (the value you will include in the scope parameter of your OAuth2 request) and the list of claims it supports.
-
-```php
-$extractor = new ClaimExtractor();
-// Create your custom scope
-$claimSet = new ClaimSetEntity('company', [
-    'company_name',
-    'company_phone',
-    'company_address'
-]);
-
-// Add it to the ClaimExtractor passed to IdTokenResponse.
-$extractor->addClaimSet($claimSet);
-```
-
-Now, when you pass the company scope with your request it will attempt to locate those properties from your UserEntity::getClaims().
-
-## Install
-
-Install the latest compatible 1.x release with Composer:
-
-```bash
-composer require sgoranov/oauth2-openid-connect-server:^1.0
-```
 
 ## Migrating from steverhoades/oauth2-openid-connect-server
 
