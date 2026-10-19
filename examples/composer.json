@@ -13,7 +13,7 @@
     ],
     "require": {
         "php": "^8.2",
-        "sgoranov/oauth2-openid-connect-server": "dev-main",
+        "sgoranov/oauth2-openid-connect-server": "*@dev",
         "slim/psr7": "^1.8",
         "slim/slim": "^4.15"
     },

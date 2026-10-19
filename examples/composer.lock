@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "74a2b0ea1875c8a3a76601f418f79509",
+    "content-hash": "5fc042d939d184d9566904a674430057",
     "packages": [
         {
             "name": "defuse/php-encryption",
@@ -1108,16 +1108,19 @@
         },
         {
             "name": "sgoranov/oauth2-openid-connect-server",
-            "version": "dev-main",
+            "version": "dev-develop",
             "dist": {
                 "type": "path",
                 "url": "..",
-                "reference": "b78024a652c88ad2a7a39d026c25324de7210371"
+                "reference": "b33d30c680be20696bd5eb8339f86b2a3d90d550"
             },
             "require": {
                 "lcobucci/jwt": "^5.6",
-                "league/oauth2-server": "^9.0",
+                "league/oauth2-server": "^9.0.1",
                 "php": "^8.2"
+            },
+            "conflict": {
+                "steverhoades/oauth2-openid-connect-server": "*"
             },
             "require-dev": {
                 "laminas/laminas-diactoros": "^1.3.2 || ^3.3",
